@@ -263,50 +263,52 @@ class Pattern:
         return 20 * np.log10(np.abs(af) + 1e-30)
 
     @staticmethod
-    def get_psll(af: np.ndarray,
-                 theta_deg_start: float = -90,
-                 theta_deg_end: float = 90,
-                 theta_deg_step: float = 0.1,
-                 mainlobe_region: Optional[tuple[float, float]] = None) -> float:
-        """计算最高副瓣电平 (Peak Sidelobe Level), dB。
-
-        独立静态方法，不需要 Pattern 实例。内部自行生成角度网格。
+    def find_peaks(pattern: np.ndarray, theta: np.ndarray
+                   ) -> tuple[np.ndarray, np.ndarray]:
+        """查找一维方向图的所有峰值，按值降序返回。
 
         Args:
-            af: 复数阵因子, shape (Nθ,)
-            theta_deg_start: 俯仰角起始（度）
-            theta_deg_end: 俯仰角终止（度）
-            theta_deg_step: 俯仰角步长（度）
-            mainlobe_region: (θ_start, θ_end) 主瓣区域（度），可选
+            pattern: 一维数组（dB 方向图或原始值均可）
+            theta: 角度网格（度），长度与 pattern 相同
 
         Returns:
-            PSLL（dB），负值
+            (values, angles) — 峰值值数组及对应角度，按值降序排列
         """
-        af = np.asarray(af)
-        theta_deg = np.arange(theta_deg_start, theta_deg_end + theta_deg_step / 2,
-                              theta_deg_step)
+        pattern = np.asarray(pattern)
+        theta = np.asarray(theta)
+        indices, values = _find_peaks(pattern)
+        return values, theta[indices]
 
-        # 归一化 dB
-        af_dB = 20 * np.log10(np.abs(af) + 1e-30)
-        af_dB -= np.max(af_dB)
+    @staticmethod
+    def get_psll(pattern: np.ndarray, theta: np.ndarray,
+                 mainlobe_region: Optional[tuple[float, float]] = None
+                 ) -> tuple[float, float]:
+        """计算最高副瓣电平及其角度。
 
-        # 找所有局部峰值，按值降序
-        indices, values = _find_peaks(af_dB)
+        委托 find_peaks() 计算，取第二高峰值作为最高副瓣。
+
+        Args:
+            pattern: 一维数组，推荐传入归一化 dB 方向图
+            theta: 角度网格（度），长度与 pattern 相同
+            mainlobe_region: (θ_start, θ_end) 主瓣角度范围（度），可选
+
+        Returns:
+            (psll_value, psll_angle) — 无副瓣时返回 (-inf, nan)
+        """
+        values, angles = Pattern.find_peaks(pattern, theta)
 
         if mainlobe_region is not None:
-            # 排除主瓣区域内的峰值
             t_start, t_end = mainlobe_region
-            mask = (theta_deg[indices] < t_start) | (theta_deg[indices] > t_end)
-            outside = values[mask]
-            if len(outside) == 0:
-                return -np.inf
-            return float(outside[0])
+            mask = (angles < t_start) | (angles > t_end)
+            values = values[mask]
+            angles = angles[mask]
 
-        # values[0] = 主瓣 (0 dB), values[1] = 最高副瓣
         if len(values) < 2:
-            return -np.inf
-        return float(values[1])
+            return -np.inf, np.nan
+
+        return float(values[1]), float(angles[1])
 
 
-# 模块级别名，支持 from core.pattern import get_psll
+# 模块级别名
+find_peaks = Pattern.find_peaks
 get_psll = Pattern.get_psll
