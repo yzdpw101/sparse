@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sparsearray"
+version = "0.1.0"
+description = "Sparse antenna array optimization library"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+]
+[project.optional-dependencies]
+optim = ["pymoo>=0.6", "cma>=3.0", "deap>=1.4"]
+hfss = ["pyaedt>=0.6"]
+all = ["sparsearray[optim]", "sparsearray[hfss]"]
+dev = ["pytest>=7.0", "sphinx>=5.0", "jupyter>=1.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
