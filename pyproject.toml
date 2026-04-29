@@ -13,13 +13,10 @@ dependencies = [
     "matplotlib>=3.7",
 ]
 [project.optional-dependencies]
-optim = ["pymoo>=0.6", "cma>=3.0", "deap>=1.4"]
-hfss = ["pyaedt>=0.6"]
-all = ["sparsearray[optim]", "sparsearray[hfss]"]
 dev = ["pytest>=7.0", "sphinx>=5.0", "jupyter>=1.0"]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["core*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

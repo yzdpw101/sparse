@@ -3,75 +3,101 @@
 ## 项目概述
 
 Python 实现的稀布/稀疏阵列天线优化库，方向图乘积定理（阵因子 × 单元因子）。
+只做核心计算，优化器用外部库（cma、pymoo、scipy.optimize 等）。
 
-当前阶段：Phase 1 核心计算已完成，Phase 2 优化基础设施进行中。
+## 目录结构
 
-## 当前状态 (Phase 1 完成)
+```
+sparse/
+├── core/                  # 核心计算代码
+│   ├── __init__.py
+│   ├── pattern.py         # 方向图计算器（AF 计算 + 归一化）
+│   ├── geometry.py        # 阵列几何定义（Element, LinearArray, PlanarArray）
+│   └── element_pattern.py # 单元方向图模型
+├── tests/                 # pytest 测试
+│   ├── conftest.py
+│   ├── test_geometry.py
+│   └── test_pattern.py
+├── docs/                  # 文档
+├── examples/              # 示例/notebook
+├── pyproject.toml
+├── CLAUDE.md
+└── README.md
+```
+
+## C++ 参考代码
+
+```
+E:\Documents\南理工\阵列天线稀疏\Sparse\
+├── 稀布幅相优化线阵\          # 最新版可执行程序
+│   ├── src\Main.cpp         # CMA-ES 优化流程 + fitness 函数
+│   ├── include\Main.h       # readFeMultiFreqFromCsvs
+│   └── Config.json
+├── antopt\                  # C++ 基础库
+│   ├── src\antenna\
+│   │   └── Pattern.cpp      # AF 计算核心（831 行）
+│   ├── include\antenna\
+│   │   └── Pattern.h
+│   └── include\utils\
+│       └── Extrema.h        # extrema1D 峰值检测
+└── antopt.sdf
+```
+
+## 当前状态
 
 - [x] `core/geometry.py` — Element、ArrayGeometry、LinearArray、PlanarArray、UniformLinearArray
-- [x] `core/array_factor.py` — 向量化阵因子计算 (θ-φ 空间 + UV 空间)
-- [x] `core/pattern.py` — 方向图分析 (MSLL、HPBW、SLL、方向性系数)
+- [x] `core/pattern.py` — 方向图计算器
+  - [x] `__init__()` 预计算角度网格和 EM 常量
+  - [x] `linear_af()` — 线阵非对称单频单角度
+  - [ ] `linear_af_symmetric()` — 对称阵列
+  - [ ] `linear_af_multi_scan()` — 多角度扫描
+  - [ ] `planar_af()` — 平面阵
+  - [ ] `planar_uv_af()` — UV 空间
+  - [x] `normalize()` — 归一化 dB 方向图
 - [x] `core/element_pattern.py` — 各向同性、cosine-q、贴片、HFSS 导入
-- [x] 基础测试通过 (13 tests)
-- [ ] `optimization/` — 待实现
-- [ ] `optimizers/` — 待实现
-- [ ] `visualization/` — 待实现
-- [ ] `integration/` — 待实现
+- [x] 基础测试通过 (12 tests)
+- [ ] 后续：完善 Pattern 其他方法、方向图分析 utility、可视化
 
-## 关键技术要点
+## Pattern 类的设计
 
-### 阵因子计算 (array_factor.py)
+构造时预计算角度相关量，计算时只传位置：
 
-- **向量化**：NumPy 广播一次性算所有方向，不用 for 循环
-- **单位处理**：geometry 里 `positions` 以**波长**为单位，array_factor 内部乘以 `wavelength` 转成米再乘以波数 k (1/m)
-  ```python
-  pos_m = self.geometry.positions[active] * self.geometry.wavelength
-  k = 2 * np.pi / wavelength  # 波数 (1/m)
-  ```
-- 线性阵：`AF(θ) = Σ A_n · exp(j·k·x_n·(sinθ - sinθ₀))`
-- 平面阵：`AF(θ,φ) = Σ A_n · exp(j·k·(x_n·u + y_n·v))`，u=sinθ·cosφ - sinθ₀·cosφ₀
+```python
+pat = Pattern(theta, k=2*np.pi, scan_theta=0.0)
+af = pat.linear_af(positions, amplitudes, phases)
+```
 
-### 方向图分析 (pattern.py)
+- **构造预计算**：sinθ、sinθ₀、deltaSin 一次性算好，避免优化循环中重复计算
+- **默认 k=2π**：位置均为波长数，不使用 wavelength 参数
+- **不支持副瓣分析**：MSLL/HPBW 等由调用方自行处理
 
-- MSLL 检测：从主瓣向外搜索局部极小值确定主瓣边界，再扫描副瓣区域找所有峰值取最大
-- HPBW 检测：在 -3dB 处线性插值提高精度
-- 与 C++ 版本的区别：C++ 用 `extrema1D` 取第一副瓣，Python 取所有副瓣最大值
-- **Pattern 只负责指标提取，fitness 中的惩罚逻辑不在该类中**
+支持的维度组合（逐步实现中）：
 
-### C++ → Python 映射
+| 维度 | 选项 |
+|---|---|
+| 阵列类型 | 线阵、平面阵 |
+| 对称性 | 非对称、对称 |
+| 频率 | 无波长 (k=2π)、单频有波长 (k=2π/λ)、多频 (多个 Pattern 实例) |
+| 扫描角 | 单角度、多角度数组 |
+
+## C++ → Python 映射
 
 | C++ | Python | 说明 |
 |---|---|---|
-| `ElementBlock` (Position + ElementProperty) | `Element` dataclass + `ArrayGeometry` | 扁平化 ndarray 替代 |
-| `Pattern::Linear::calcAF(deltaSinTheta, wlpos)` | `ArrayFactor.compute_af(theta, phi)` | 改用 θ 角输入，内部转 sinθ |
-| `Pattern::Planar::calcUVAF(deltaU, deltaV)` | `ArrayFactor.compute_uv_af(u, v)` | 保留 UV 空间计算 |
-| `Pattern::calcUVPattern` 后处理 | `Pattern` 类 | 方向图分析和指标提取 |
-| `extrema1D` → extrema[1] 取 PSLL | `get_msll()` 扫描所有副瓣峰值 | Python 取全局最大值 |
-| LM mapper 位置编码 | 待实现 → `constraints.py` 或 `continuous.py` | Phase 2 |
-| `FitFuncType = function<double(VectorXd)>` | `Callable[[ndarray], float]` | Python 原生支持 |
-| CRTP + fluent setter | 关键字参数 + dataclass | Python 更简洁 |
-
-### Config 策略
-
-Python 用 `json.load()` 读配置非常轻量，不需要像 C++ 那样封装。推荐：
-- 一个 `load_config()` 函数
-- 一个 `ExperimentConfig` dataclass 存参数字段
-- 不搞完整的大封装类
+| `ElementBlock` | `Element` dataclass + `ArrayGeometry` | |
+| `calcAF(deltaSinTheta, wlpos, exc)` | `Pattern.__init__` 预算 `_delta_sin` + `linear_af()` | 角度预计算，调用只传位置 |
+| `calcSymmetryAF` | `linear_af_symmetric()` | 待实现 |
+| `calcMultiFreqAF` | 多个 Pattern 实例 | 待实现 |
+| `calcMultAngleAF` | `__init__(scan_thetas=array)` | 待实现 |
+| `calcUVAF` | `planar_uv_af()` | 待实现 |
+| `extrema1D` + Main.cpp fitness | 调用方自行处理 | MSLL/HPBW 不在 Pattern 中 |
 
 ## 开发约定
 
-- Python 3.10+, NumPy, SciPy, Matplotlib 为核心依赖
-- 尽量用成熟库（pymoo、cma、scipy.optimize），不重复造轮子
-- 测试用 pytest，conftest.py 放共享 fixtures
-- 一个功能一个 PR style 增量开发
-- 代码注释用中文，但标识符和 API 用英文
-- 不改动已有的工作代码，新增功能时注意向后兼容
-
-## 架构原则
-
-- **优先解耦**：底层模块（ArrayFactor、Pattern）保持 stateless 纯计算；中间层只有在需要封装状态 + callable 时才用类，且职责单一；顶层不封装，直接写脚本/notebook 组装流程。
-- **不搞上帝类**：不做大而全的 Workflow/Context 类，传参用 dataclass 或配置字典。
-- **能写成独立函数就不加类**，有确定状态需要管理时才考虑用类。
+- Python 3.10+, NumPy 核心依赖
+- 预计算优先：构造时算好常量，计算时只传变化量
+- 测试用 pytest
+- 代码注释用中文，标识符和 API 用英文
 
 ## 测试
 
@@ -79,6 +105,6 @@ Python 用 `json.load()` 读配置非常轻量，不需要像 C++ 那样封装�
 python -m pytest tests/ -v
 ```
 
-当前 13 个测试全部通过，覆盖：
-- geometry: 构造、对称性、批量设置、activate_subset
-- array_factor: 输出形状、法向峰值、MSLL 理论值 (-12.97dB)、HPBW (10.19°)、扫描、单阵元退化
+当前 12 个测试全部通过：
+- geometry (7 个): 构造、对称性、批量设置、activate_subset
+- pattern (5 个): 输出形状、法向峰值、扫描、单阵元退化、归一化

@@ -1,0 +1,312 @@
+"""方向图计算器。
+
+构造时预计算所有电磁常量（波数）和角度网格（sinθ、deltaSin），
+计算时只传阵元位置和激励，避免优化循环中重复计算。
+
+位置坐标均以波长为单位。单频时 k=2π（不使用 wavelength），
+多频时根据频率比缩放波数。
+
+支持的维度组合（通过构造函数参数控制）：
+  阵列类型: 线阵 (phi 参数不传) / 平面阵 (传 phi 参数)
+  扫描角:   单角度 (theta0s 标量) / 多角度 (theta0s 数组)
+  频率:     单频 (frequenciesGHz 标量) / 多频 (frequenciesGHz 数组)
+"""
+
+from typing import Optional, Union
+import numpy as np
+
+
+def _find_peaks(data: np.ndarray, consider_edges: bool = True
+                ) -> tuple[np.ndarray, np.ndarray]:
+    """找一维数组局部峰值，按值降序返回 (indices, values)。
+
+    对应 C++ extrema1D(data, findMax=true)。
+    """
+    n = len(data)
+    if n == 0:
+        return np.array([], dtype=int), np.array([])
+    if n == 1:
+        return np.array([0]), np.array([data[0]])
+
+    peak_indices = []
+    for i in range(n):
+        if i == 0:
+            if consider_edges and data[0] >= data[1] and data[0] > data[1]:
+                peak_indices.append(i)
+        elif i == n - 1:
+            if consider_edges and data[n - 1] >= data[n - 2] and data[n - 1] > data[n - 2]:
+                peak_indices.append(i)
+        else:
+            if data[i] >= data[i - 1] and data[i] >= data[i + 1]:
+                if data[i] > data[i - 1] or data[i] > data[i + 1]:
+                    peak_indices.append(i)
+
+    if not peak_indices:
+        peak_indices = [int(np.argmax(data))]
+
+    indices = np.array(peak_indices)
+    values = data[indices]
+    order = np.argsort(values)[::-1]
+    return indices[order], values[order]
+
+
+class Pattern:
+    """方向图计算器。
+
+    构造时预计算角度网格和电磁常量，后续 compute 只传阵元配置。
+
+    Args:
+        theta_deg_start: 俯仰角起始（度）
+        theta_deg_end: 俯仰角终止（度）
+        theta_deg_step: 俯仰角步长（度）
+        theta0s_deg: 波束指向俯仰角（度），标量=单角度，数组=多角度
+        phi_deg_start: 方位角起始（度），不传=线阵模式
+        phi_deg_end: 方位角终止（度）
+        phi_deg_step: 方位角步长（度）
+        phi0s_deg: 波束指向方位角（度），标量=单个，数组=多个
+        frequenciesGHz: 工作频率（GHz），标量=单频，数组=多频
+    """
+
+    def __init__(
+        self,
+        theta_deg_start: float = -90,
+        theta_deg_end: float = 90,
+        theta_deg_step: float = 0.1,
+        theta0s_deg: Union[float, np.ndarray] = 0.0,
+        phi_deg_start: Optional[float] = None,
+        phi_deg_end: Optional[float] = None,
+        phi_deg_step: Optional[float] = None,
+        phi0s_deg: Union[float, np.ndarray, None] = None,
+        frequenciesGHz: Union[float, np.ndarray] = 1.0,
+    ):
+        # ── 频率 ──
+        self.frequenciesGHz = np.atleast_1d(
+            np.asarray(frequenciesGHz, dtype=float)
+        )
+        self._n_freq = len(self.frequenciesGHz)
+        # 单频: k=2π (不使用 wavelength), 多频: 后续按频率比缩放
+        self._ks = 2 * np.pi * np.ones(self._n_freq)
+
+        # ── theta 网格 ──
+        self.theta_deg = np.arange(
+            theta_deg_start, theta_deg_end + theta_deg_step / 2, theta_deg_step
+        )
+        self._n_theta = len(self.theta_deg)
+        self._sin_theta = np.sin(np.deg2rad(self.theta_deg))
+
+        # ── phi 网格（None = 线阵模式）──
+        self._is_planar = phi_deg_start is not None
+        if self._is_planar:
+            if phi_deg_end is None or phi_deg_step is None:
+                raise ValueError("平面阵必须同时指定 phi_deg_end 和 phi_deg_step")
+            self.phi_deg = np.arange(
+                phi_deg_start, phi_deg_end + phi_deg_step / 2, phi_deg_step
+            )
+            self._n_phi = len(self.phi_deg)
+            self._sin_phi = np.sin(np.deg2rad(self.phi_deg))
+            self._cos_phi = np.cos(np.deg2rad(self.phi_deg))
+        else:
+            self.phi_deg = None
+            self._n_phi = 0
+
+        # ── 扫描角 ──
+        self.theta0s_deg = np.atleast_1d(
+            np.asarray(theta0s_deg, dtype=float)
+        )
+        self._n_scan = len(self.theta0s_deg)
+        self._sin_theta0s = np.sin(np.deg2rad(self.theta0s_deg))
+
+        # 预计算 delta_sin = sinθ − sinθ₀
+        #  单角度: (Nθ,)    多角度: (Nscan, Nθ)
+        _delta = self._sin_theta[None, :] - self._sin_theta0s[:, None]
+        if self._n_scan == 1:
+            self._delta_sin = _delta[0]          # (Nθ,)
+        else:
+            self._delta_sin = _delta              # (Nscan, Nθ)
+
+        # 平面阵扫描角预处理
+        if self._is_planar:
+            phi0s = np.atleast_1d(
+                np.asarray(phi0s_deg if phi0s_deg is not None else 0.0, dtype=float)
+            )
+            self._phi0s_deg = phi0s
+            self._n_phi0 = len(phi0s)
+            self._sin_phi0s = np.sin(np.deg2rad(phi0s))
+            self._cos_phi0s = np.cos(np.deg2rad(phi0s))
+        else:
+            self._phi0s_deg = None
+
+    # ============================================================
+    #  属性
+    # ============================================================
+
+    @property
+    def is_planar(self) -> bool:
+        return self._is_planar
+
+    @property
+    def is_multi_freq(self) -> bool:
+        return self._n_freq > 1
+
+    @property
+    def is_multi_scan(self) -> bool:
+        return self._n_scan > 1
+
+    # ============================================================
+    #  线阵
+    # ============================================================
+
+    def linear_af(
+        self,
+        positions: np.ndarray,
+        amplitudes: Optional[np.ndarray] = None,
+        phases: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """线阵非对称阵因子。
+
+        对应 C++: Pattern::Linear::calcAF(deltaSinTheta, wlpos, excitations)
+        delta_sin 已在构造时预计算。
+
+        AF(θ) = Σ A_n · exp(j · 2π · x_n · (sinθ − sinθ₀))
+
+        Args:
+            positions: 阵元 x 坐标（波长单位），shape (N,)
+            amplitudes: 激励幅度，shape (N,)，默认全 1
+            phases: 激励相位（弧度），shape (N,)，默认全 0
+
+        Returns:
+            复数阵因子
+              单频单角度: (Nθ,)
+              单频多角度: (Nscan, Nθ)
+              多频单角度: (Nfreq, Nθ)
+              多频多角度: (Nfreq, Nscan, Nθ)
+        """
+        positions = np.asarray(positions, dtype=float)
+        n = len(positions)
+        amps = np.ones(n) if amplitudes is None else np.asarray(amplitudes, dtype=float)
+        phs = np.zeros(n) if phases is None else np.asarray(phases, dtype=float)
+
+        excitations = amps * np.exp(1j * phs)
+
+        if self._n_freq == 1:
+            k = self._ks[0]
+            # phase: (N, *delta_sin_shape)
+            phase = k * np.outer(positions, self._delta_sin.reshape(-1))
+            phase = phase.reshape(n, *self._delta_sin.shape)
+            # einsum('i,i...->...') 支持任意维度: (Nθ,) 或 (Nscan, Nθ)
+            return np.einsum("i,i...->...", excitations, np.exp(1j * phase))
+
+        # 多频 → (Nfreq, *delta_sin_shape)
+        afs = []
+        for k in self._ks:
+            phase = k * np.outer(positions, self._delta_sin.reshape(-1))
+            phase = phase.reshape(n, *self._delta_sin.shape)
+            afs.append(np.einsum("i,i...->...", excitations, np.exp(1j * phase)))
+        return np.array(afs)
+
+    def linear_af_symmetric(
+        self,
+        half_positions: np.ndarray,
+        has_center: bool = True,
+        amplitudes: Optional[np.ndarray] = None,
+        phases: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """线阵对称阵因子。框架。"""
+        raise NotImplementedError("待实现")
+
+    # ============================================================
+    #  平面阵
+    # ============================================================
+
+    def planar_af(
+        self,
+        positions_x: np.ndarray,
+        positions_y: np.ndarray,
+        amplitudes: Optional[np.ndarray] = None,
+        phases: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """平面阵阵因子。框架。"""
+        raise NotImplementedError("待实现")
+
+    def planar_uv_af(
+        self,
+        positions_x: np.ndarray,
+        positions_y: np.ndarray,
+        u: np.ndarray,
+        v: np.ndarray,
+        amplitudes: Optional[np.ndarray] = None,
+        phases: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """平面阵 UV 空间阵因子。框架。"""
+        raise NotImplementedError("待实现")
+
+    # ============================================================
+    #  通用后处理
+    # ============================================================
+
+    @staticmethod
+    def normalize(af: np.ndarray) -> np.ndarray:
+        """归一化 dB 方向图。
+
+        Args:
+            af: 复数阵因子
+
+        Returns:
+            dB 方向图，最大值归一化到 0 dB
+        """
+        af_dB = 20 * np.log10(np.abs(af) + 1e-30)
+        return af_dB - np.max(af_dB)
+
+    @staticmethod
+    def to_dB(af: np.ndarray) -> np.ndarray:
+        """阵因子转 dB（未归一化）。"""
+        return 20 * np.log10(np.abs(af) + 1e-30)
+
+    @staticmethod
+    def get_psll(af: np.ndarray,
+                 theta_deg_start: float = -90,
+                 theta_deg_end: float = 90,
+                 theta_deg_step: float = 0.1,
+                 mainlobe_region: Optional[tuple[float, float]] = None) -> float:
+        """计算最高副瓣电平 (Peak Sidelobe Level), dB。
+
+        独立静态方法，不需要 Pattern 实例。内部自行生成角度网格。
+
+        Args:
+            af: 复数阵因子, shape (Nθ,)
+            theta_deg_start: 俯仰角起始（度）
+            theta_deg_end: 俯仰角终止（度）
+            theta_deg_step: 俯仰角步长（度）
+            mainlobe_region: (θ_start, θ_end) 主瓣区域（度），可选
+
+        Returns:
+            PSLL（dB），负值
+        """
+        af = np.asarray(af)
+        theta_deg = np.arange(theta_deg_start, theta_deg_end + theta_deg_step / 2,
+                              theta_deg_step)
+
+        # 归一化 dB
+        af_dB = 20 * np.log10(np.abs(af) + 1e-30)
+        af_dB -= np.max(af_dB)
+
+        # 找所有局部峰值，按值降序
+        indices, values = _find_peaks(af_dB)
+
+        if mainlobe_region is not None:
+            # 排除主瓣区域内的峰值
+            t_start, t_end = mainlobe_region
+            mask = (theta_deg[indices] < t_start) | (theta_deg[indices] > t_end)
+            outside = values[mask]
+            if len(outside) == 0:
+                return -np.inf
+            return float(outside[0])
+
+        # values[0] = 主瓣 (0 dB), values[1] = 最高副瓣
+        if len(values) < 2:
+            return -np.inf
+        return float(values[1])
+
+
+# 模块级别名，支持 from core.pattern import get_psll
+get_psll = Pattern.get_psll

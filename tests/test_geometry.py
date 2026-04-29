@@ -1,7 +1,7 @@
 """测试阵列几何模块。"""
 
 import numpy as np
-from sparsearray.core.geometry import Element, LinearArray, PlanarArray, UniformLinearArray
+from core.geometry import Element, LinearArray, PlanarArray, UniformLinearArray
 
 
 def test_element_defaults():
@@ -37,7 +37,6 @@ def test_uniform_linear_array():
     """UniformLinearArray 对称性测试。"""
     ula = UniformLinearArray(num_elements=10, spacing=0.5, frequency=10e9)
     assert ula.num_elements == 10
-    # 验证中心对称
     xs = ula.positions_x
     assert np.allclose(xs, -xs[::-1]), "均匀直线阵应关于原点对称"
 
