@@ -16,7 +16,7 @@ def test_linear_af_peak_at_broadside():
     """验证线性阵峰值在法向 (θ=0°)。"""
     pat = Pattern(theta_deg_start=-90, theta_deg_end=90, theta_deg_step=0.1)
     positions = np.linspace(-2.25, 2.25, 10)
-    af = Pattern.normalize(pat.linear_af(positions))
+    af = Pattern.to_dB(pat.linear_af(positions))
     peak_idx = np.argmax(af)
     assert abs(pat.theta_deg[peak_idx]) < 0.5, \
         f"峰值应位于 0°, 实际 {pat.theta_deg[peak_idx]:.1f}°"
@@ -27,7 +27,7 @@ def test_linear_af_scan():
     pat = Pattern(theta_deg_start=-90, theta_deg_end=90, theta_deg_step=0.1,
                   theta0s_deg=30.0)
     positions = np.linspace(-2.25, 2.25, 10)
-    af = Pattern.normalize(pat.linear_af(positions))
+    af = Pattern.to_dB(pat.linear_af(positions))
     peak_idx = np.argmax(af)
     assert abs(pat.theta_deg[peak_idx] - 30.0) < 2.0, \
         f"峰值应位于 30° 附近, 实际 {pat.theta_deg[peak_idx]:.1f}°"
@@ -36,17 +36,17 @@ def test_linear_af_scan():
 def test_linear_af_single_element():
     """单阵元退化为全向方向图。"""
     pat = Pattern(theta_deg_start=-90, theta_deg_end=90, theta_deg_step=0.1)
-    af = Pattern.normalize(pat.linear_af(np.array([0.0])))
+    af = Pattern.to_dB(pat.linear_af(np.array([0.0])))
     assert np.allclose(af, 0.0, atol=1e-10), "单阵元方向图应全为 0 dB"
 
 
-def test_normalize_output_range():
-    """验证 normalize 输出最大值始终为 0 dB。"""
+def test_to_dB_output_range():
+    """验证 to_dB 输出最大值始终为 0 dB。"""
     pat = Pattern(theta_deg_start=-90, theta_deg_end=90, theta_deg_step=0.1)
     positions = np.linspace(-2.25, 2.25, 10)
     af = pat.linear_af(positions)
-    af_norm = Pattern.normalize(af)
-    assert abs(np.max(af_norm)) < 1e-10, "归一化方向图最大值应为 0 dB"
+    af_db = Pattern.to_dB(af)
+    assert abs(np.max(af_db)) < 1e-10, "归一化 dB 方向图最大值应为 0 dB"
 
 
 def test_theta_grid_generation():
@@ -69,6 +69,7 @@ def test_multi_scan_shape():
 def test_properties():
     """验证属性标志位。"""
     pat1 = Pattern()
+    assert pat1.array_type == "linear"
     assert not pat1.is_planar
     assert not pat1.is_multi_freq
     assert not pat1.is_multi_scan
@@ -78,3 +79,68 @@ def test_properties():
 
     pat3 = Pattern(frequenciesGHz=np.array([1.0, 2.0]))
     assert pat3.is_multi_freq
+
+
+# ============================================================
+#  normalize / to_dB
+# ============================================================
+
+def test_normalize_linear():
+    """normalize 返回线性域归一化幅度，范围 [0, 1]。"""
+    af = np.array([2.0, 1.0, 3.0], dtype=complex)
+    norm = Pattern.normalize(af)
+    assert np.max(norm) == 1.0
+    assert np.min(norm) >= 0.0
+    assert abs(norm[2] - 1.0) < 1e-12
+
+
+def test_to_dB_normalized_vs_raw():
+    """to_dB(normalized=True) 峰值应为 0 dB, normalized=False 不归一化。"""
+    af = np.array([1.0, 0.5, 0.1], dtype=complex)
+    db_norm = Pattern.to_dB(af, normalized=True)
+    db_raw = Pattern.to_dB(af, normalized=False)
+    assert abs(np.max(db_norm)) < 1e-10, "归一化 dB 最大值应为 0 dB"
+    assert abs(db_raw[0] - 0.0) < 1e-10, "未归一化时 1.0 应为 0 dB"
+
+
+def test_to_dB_default_normalized():
+    """to_dB 默认启用归一化。"""
+    af = np.array([0.5, 1.0, 0.25], dtype=complex)
+    db_def = Pattern.to_dB(af)
+    assert abs(np.max(db_def)) < 1e-10
+
+
+# ============================================================
+#  array_type / af()
+# ============================================================
+
+def test_array_type_linear_default():
+    """默认 array_type 为 linear。"""
+    pat = Pattern()
+    assert pat.array_type == "linear"
+
+
+def test_array_type_planar():
+    """指定 array_type="planar"。"""
+    pat = Pattern(array_type="planar",
+                  phi_deg_start=-90, phi_deg_end=90, phi_deg_step=1.0)
+    assert pat.array_type == "planar"
+    assert pat.is_planar
+
+
+def test_array_type_invalid():
+    """非法 array_type 应报错。"""
+    try:
+        Pattern(array_type="circular")
+        assert False, "应抛出 ValueError"
+    except ValueError:
+        pass
+
+
+def test_af_dispatches_to_linear_af():
+    """array_type="linear" 时 af() 等价于 linear_af()。"""
+    pat = Pattern(theta_deg_step=1.0)
+    positions = np.linspace(-2.25, 2.25, 10)
+    af1 = pat.af(positions)
+    af2 = pat.linear_af(positions)
+    assert np.allclose(af1, af2)

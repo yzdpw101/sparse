@@ -12,7 +12,7 @@
   频率:     单频 (frequenciesGHz 标量) / 多频 (frequenciesGHz 数组)
 """
 
-from typing import Optional, Union
+from typing import Optional, Union, Literal
 import numpy as np
 
 
@@ -22,11 +22,12 @@ class Pattern:
     构造时预计算角度网格和电磁常量，后续 compute 只传阵元配置。
 
     Args:
+        array_type: 阵列类型, "linear"=线阵, "planar"=平面阵
         theta_deg_start: 俯仰角起始（度）
         theta_deg_end: 俯仰角终止（度）
         theta_deg_step: 俯仰角步长（度）
         theta0s_deg: 波束指向俯仰角（度），标量=单角度，数组=多角度
-        phi_deg_start: 方位角起始（度），不传=线阵模式
+        phi_deg_start: 方位角起始（度），array_type="planar" 时必须指定
         phi_deg_end: 方位角终止（度）
         phi_deg_step: 方位角步长（度）
         phi0s_deg: 波束指向方位角（度），标量=单个，数组=多个
@@ -35,6 +36,7 @@ class Pattern:
 
     def __init__(
         self,
+        array_type: Literal["linear", "planar"] = "linear",
         theta_deg_start: float = -90,
         theta_deg_end: float = 90,
         theta_deg_step: float = 0.1,
@@ -45,12 +47,16 @@ class Pattern:
         phi0s_deg: Union[float, np.ndarray, None] = None,
         frequenciesGHz: Union[float, np.ndarray] = 1.0,
     ):
+        # ── 阵列类型 ──
+        if array_type not in ("linear", "planar"):
+            raise ValueError(f"array_type 必须是 'linear' 或 'planar', 实际 '{array_type}'")
+        self._array_type = array_type
+
         # ── 频率 ──
         self.frequenciesGHz = np.atleast_1d(
             np.asarray(frequenciesGHz, dtype=float)
         )
         self._n_freq = len(self.frequenciesGHz)
-        # 单频: k=2π (不使用 wavelength), 多频: 后续按频率比缩放
         self._ks = 2 * np.pi * np.ones(self._n_freq)
 
         # ── theta 网格 ──
@@ -60,11 +66,10 @@ class Pattern:
         self._n_theta = len(self.theta_deg)
         self._sin_theta = np.sin(np.deg2rad(self.theta_deg))
 
-        # ── phi 网格（None = 线阵模式）──
-        self._is_planar = phi_deg_start is not None
-        if self._is_planar:
-            if phi_deg_end is None or phi_deg_step is None:
-                raise ValueError("平面阵必须同时指定 phi_deg_end 和 phi_deg_step")
+        # ── phi 网格 ──
+        if array_type == "planar":
+            if phi_deg_start is None or phi_deg_end is None or phi_deg_step is None:
+                raise ValueError("平面阵必须指定 phi_deg_start, phi_deg_end, phi_deg_step")
             self.phi_deg = np.arange(
                 phi_deg_start, phi_deg_end + phi_deg_step / 2, phi_deg_step
             )
@@ -83,7 +88,6 @@ class Pattern:
         self._sin_theta0s = np.sin(np.deg2rad(self.theta0s_deg))
 
         # 预计算 delta_sin = sinθ − sinθ₀
-        #  单角度: (Nθ,)    多角度: (Nscan, Nθ)
         _delta = self._sin_theta[None, :] - self._sin_theta0s[:, None]
         if self._n_scan == 1:
             self._delta_sin = _delta[0]          # (Nθ,)
@@ -91,7 +95,7 @@ class Pattern:
             self._delta_sin = _delta              # (Nscan, Nθ)
 
         # 平面阵扫描角预处理
-        if self._is_planar:
+        if array_type == "planar":
             phi0s = np.atleast_1d(
                 np.asarray(phi0s_deg if phi0s_deg is not None else 0.0, dtype=float)
             )
@@ -107,8 +111,12 @@ class Pattern:
     # ============================================================
 
     @property
+    def array_type(self) -> str:
+        return self._array_type
+
+    @property
     def is_planar(self) -> bool:
-        return self._is_planar
+        return self._array_type == "planar"
 
     @property
     def is_multi_freq(self) -> bool:
@@ -117,6 +125,34 @@ class Pattern:
     @property
     def is_multi_scan(self) -> bool:
         return self._n_scan > 1
+
+    # ============================================================
+    #  统一 AF 入口
+    # ============================================================
+
+    def af(
+        self,
+        positions_x: np.ndarray,
+        positions_y: Optional[np.ndarray] = None,
+        amplitudes: Optional[np.ndarray] = None,
+        phases: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """统一阵因子入口，根据 array_type 自动分派。
+
+        Args:
+            positions_x: 阵元 x 坐标（波长单位），shape (N,)
+            positions_y: 阵元 y 坐标，仅 array_type="planar" 时需要
+            amplitudes: 激励幅度，shape (N,)，默认全 1
+            phases: 激励相位（弧度），shape (N,)，默认全 0
+
+        Returns:
+            复数阵因子
+        """
+        if self._array_type == "linear":
+            return self.linear_af(positions_x, amplitudes, phases)
+        if positions_y is None:
+            raise ValueError("平面阵必须提供 positions_y")
+        return self.planar_af(positions_x, positions_y, amplitudes, phases)
 
     # ============================================================
     #  线阵
@@ -212,18 +248,27 @@ class Pattern:
 
     @staticmethod
     def normalize(af: np.ndarray) -> np.ndarray:
-        """归一化 dB 方向图。
+        """线性归一化: |af| / max(|af|), 范围 [0, 1]。
 
         Args:
             af: 复数阵因子
 
         Returns:
-            dB 方向图，最大值归一化到 0 dB
+            归一化幅度
         """
-        af_dB = 20 * np.log10(np.abs(af) + 1e-30)
-        return af_dB - np.max(af_dB)
+        return np.abs(af) / np.max(np.abs(af))
 
     @staticmethod
-    def to_dB(af: np.ndarray) -> np.ndarray:
-        """阵因子转 dB（未归一化）。"""
+    def to_dB(af: np.ndarray, normalized: bool = True) -> np.ndarray:
+        """阵因子转 dB。
+
+        Args:
+            af: 复数阵因子
+            normalized: True 时先归一化再转 dB（峰值 0 dB），默认开启
+
+        Returns:
+            dB 方向图
+        """
+        if normalized:
+            return 20 * np.log10(np.abs(af) / np.max(np.abs(af)) + 1e-30)
         return 20 * np.log10(np.abs(af) + 1e-30)
