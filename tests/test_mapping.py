@@ -90,9 +90,9 @@ def test_validation_errors():
         assert False
     except ValueError:
         pass
-    # 对称 Ne 奇数
+    # 对称 Ne=1
     try:
-        LMMapper(Ne=9, L=10, dmin=0.5, is_symmetric=True)
+        LMMapper(Ne=1, L=10, dmin=0.5, is_symmetric=True)
         assert False
     except ValueError:
         pass
@@ -116,6 +116,47 @@ def test_validation_errors():
         assert False
     except ValueError:
         pass
+
+
+def test_odd_symmetric_no_fixed():
+    """奇数对称非固定: 17 元, n_vars = (17-1)/2 = 8。"""
+    mapper = LMMapper(Ne=17, L=10.0, dmin=0.5,
+                      is_symmetric=True, is_fixed_aperture=False)
+    assert mapper.has_center
+    assert mapper.n_vars == 8  # (17-1)/2
+    opt = np.zeros(mapper.n_vars)
+    pos = mapper.synthesize(opt)
+    assert len(pos) == 17
+    # 中心在 x=0
+    assert abs(pos[8]) < 1e-10
+    # 对称
+    assert np.allclose(pos[:8], -pos[9:][::-1])
+    assert np.all(np.diff(pos) >= 0.5 - 1e-10)
+
+
+def test_odd_symmetric_fixed_aperture():
+    """奇数对称固定孔径: 17 元, n_vars = (17+1)/2 - 2 = 7。"""
+    mapper = LMMapper(Ne=17, L=10.0, dmin=0.5,
+                      is_symmetric=True, is_fixed_aperture=True)
+    assert mapper.n_vars == 7  # (17+1)/2 - 2
+    opt = np.zeros(mapper.n_vars)
+    pos = mapper.synthesize(opt)
+    assert len(pos) == 17
+    assert abs(pos[0] + 5.0) < 1e-10
+    assert abs(pos[-1] - 5.0) < 1e-10
+    assert abs(pos[8]) < 1e-10  # 中心
+    assert np.allclose(pos[:8], -pos[9:][::-1])
+
+
+def test_odd_symmetric_unbounded():
+    """奇数对称无界输入不溢出。"""
+    mapper = LMMapper(Ne=15, L=8.0, dmin=0.5,
+                      is_symmetric=True, is_fixed_aperture=False)
+    opt = np.full(mapper.n_vars, 50.0)  # 极端正值
+    pos = mapper.synthesize(opt)
+    assert len(pos) == 15
+    assert abs(pos[7]) < 1e-10  # 中心在 x=0
+    assert np.all(np.diff(pos) >= 0.5 - 1e-10)
 
 
 def test_synthesize_deterministic():
