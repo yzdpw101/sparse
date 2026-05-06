@@ -42,47 +42,60 @@ def _find_peaks(data: np.ndarray, consider_edges: bool = True
     return indices[order], values[order]
 
 
-def find_peaks(pattern: np.ndarray, theta: np.ndarray
+def find_peaks(pattern: np.ndarray,
+               theta: Optional[np.ndarray] = None
                ) -> tuple[np.ndarray, np.ndarray]:
     """查找一维方向图的所有峰值，按值降序返回。
 
     Args:
         pattern: 一维数组（dB 方向图或原始值均可）
-        theta: 角度网格（度），长度与 pattern 相同
+        theta: 角度网格（度），长度与 pattern 相同。
+               不传时返回索引而非角度。
 
     Returns:
-        (values, angles) — 峰值值数组及对应角度，按值降序排列
+        (values, coords) — 峰值值及对应坐标。
+        theta 传入时为角度，否则为索引。
     """
     pattern = np.asarray(pattern)
-    theta = np.asarray(theta)
     indices, values = _find_peaks(pattern)
-    return values, theta[indices]
+    if theta is not None:
+        return values, np.asarray(theta)[indices]
+    return values, indices
 
 
-def get_psll(pattern: np.ndarray, theta: np.ndarray,
+def get_psll(pattern: np.ndarray,
+             theta: Optional[np.ndarray] = None,
              mainlobe_region: Optional[tuple[float, float]] = None
              ) -> tuple[float, float]:
-    """计算最高副瓣电平及其角度。
+    """计算最高副瓣电平及其角度（或索引）。
 
     委托 find_peaks() 计算，取第二高峰值作为最高副瓣。
 
     Args:
         pattern: 一维数组，推荐传入归一化 dB 方向图
-        theta: 角度网格（度），长度与 pattern 相同
-        mainlobe_region: (θ_start, θ_end) 主瓣角度范围（度），可选
+        theta: 角度网格（度），长度与 pattern 相同。
+               不传时返回索引而非角度。
+        mainlobe_region: (θ_start, θ_end) 主瓣角度范围（度）。
+                         传入此参数时 theta 不能为 None。
 
     Returns:
-        (psll_value, psll_angle) — 无副瓣时返回 (-inf, nan)
+        (psll_value, psll_coord) — 无副瓣时返回 (-inf, nan)。
+        psll_coord 在 theta 传入时为角度，否则为索引。
     """
-    values, angles = find_peaks(pattern, theta)
+    if mainlobe_region is not None and theta is None:
+        raise ValueError("使用 mainlobe_region 时必须提供 theta")
+
+    values, coords = find_peaks(pattern, theta)
 
     if mainlobe_region is not None:
         t_start, t_end = mainlobe_region
-        mask = (angles < t_start) | (angles > t_end)
+        mask = (coords < t_start) | (coords > t_end)
         values = values[mask]
-        angles = angles[mask]
+        coords = coords[mask]
 
     if len(values) < 2:
         return -np.inf, np.nan
 
-    return float(values[1]), float(angles[1])
+    if theta is not None:
+        return float(values[1]), float(coords[1])
+    return float(values[1]), int(coords[1])

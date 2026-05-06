@@ -54,3 +54,31 @@ def test_find_peaks_broadside():
     values, angles = find_peaks(af_db, pat.theta_deg)
     assert len(values) >= 2, "均匀线阵应有多个峰值"
     assert abs(values[0]) < 1e-6, "最高峰值应为 0 dB（主瓣）"
+
+
+def test_find_peaks_no_theta():
+    """不传 theta 时返回索引。"""
+    data = np.array([0.0, -5.0, -10.0, -3.0, -8.0])
+    values, indices = find_peaks(data)
+    assert len(values) >= 2
+    assert np.issubdtype(indices.dtype, np.integer), "不传 theta 应返回整数索引"
+
+
+def test_get_psll_no_theta():
+    """不传 theta 时 get_psll 返回索引。"""
+    pat = Pattern(theta_deg_step=1.0)
+    af_db = Pattern.normalize(pat.linear_af(np.linspace(-2.25, 2.25, 10)))
+    psll_val, psll_idx = get_psll(af_db)
+    assert isinstance(psll_val, float)
+    assert isinstance(psll_idx, (int, np.integer)), "不传 theta 应返回整数索引"
+    assert psll_val < 0
+
+
+def test_get_psll_mainlobe_region_requires_theta():
+    """mainlobe_region 不传 theta 时报错。"""
+    data = np.random.randn(100)
+    try:
+        get_psll(data, mainlobe_region=(-10, 10))
+        assert False, "应抛出 ValueError"
+    except ValueError:
+        pass
