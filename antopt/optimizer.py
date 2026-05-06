@@ -115,17 +115,15 @@ class SparseArrayProblem(Problem):
         else:
             if self.mapper.is_symmetric:
                 # synthesize 返回完整位置；linear_af_symmetric 只需半边(x>0)
+                # 激励也需对应半边
                 halfNe = self.mapper._halfNe
-                if self.mapper.has_center:
-                    half_pos = pos[halfNe:]  # hpos[1:] 不含中心
-                    af = self.pattern.linear_af_symmetric(
-                        half_pos, has_center=True, amplitudes=amps, phases=phases
-                    )
-                else:
-                    half_pos = pos[halfNe:]
-                    af = self.pattern.linear_af_symmetric(
-                        half_pos, has_center=False, amplitudes=amps, phases=phases
-                    )
+                half_pos = pos[halfNe:]      # 右侧位置 (hpos 或 hpos[1:])
+                half_amps = amps[halfNe:]    # 对应激励
+                half_phases = phases[halfNe:]
+                af = self.pattern.linear_af_symmetric(
+                    half_pos, has_center=self.mapper.has_center,
+                    amplitudes=half_amps, phases=half_phases,
+                )
             else:
                 af = self.pattern.linear_af(pos, amps, phases)
 
