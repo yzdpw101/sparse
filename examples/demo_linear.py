@@ -26,28 +26,36 @@ THETA_START = -90        # 起始角度（度）
 THETA_END = 90           # 终止角度（度）
 THETA_STEP = 0.1         # 角度步长（度）
 
+# 对称模式: True=对称阵列（只传半边位置），False=非对称（传全部位置）
+SYMMETRIC = True
+
 # 幅度加权 (None=均匀, 或传入长度为 N_ELEMENTS 的数组)
 AMPLITUDES = None
-# AMPLITUDES = np.hanning(N_ELEMENTS)  # 试试 Hanning 窗
 
 # ═══════════════════════════════════════════════════════════
 #  计算
 # ═══════════════════════════════════════════════════════════
 
-positions = np.linspace(-(N_ELEMENTS - 1) * SPACING / 2,
-                        (N_ELEMENTS - 1) * SPACING / 2, N_ELEMENTS)
-
-print(f"阵元位置: {positions}")
-print(f"孔径: {positions[-1] - positions[0]:.4f} λ")
-
 pat = Pattern(
+    symmetric=SYMMETRIC,
     theta_deg_start=THETA_START,
     theta_deg_end=THETA_END,
     theta_deg_step=THETA_STEP,
     theta0s_deg=SCAN_ANGLE,
 )
 
-af = pat.linear_af(positions, amplitudes=AMPLITUDES)
+if SYMMETRIC:
+    # 对称模式：只传半边位置（x > 0）
+    half_positions = np.arange(SPACING, (N_ELEMENTS // 2) * SPACING + SPACING / 2, SPACING)
+    print(f"半边阵元位置: {half_positions}")
+    print(f"孔径: {2 * half_positions[-1]:.4f} λ（对称）")
+    af = pat.af(half_positions, amplitudes=AMPLITUDES)
+else:
+    positions = np.linspace(-(N_ELEMENTS - 1) * SPACING / 2,
+                            (N_ELEMENTS - 1) * SPACING / 2, N_ELEMENTS)
+    print(f"阵元位置: {positions}")
+    print(f"孔径: {positions[-1] - positions[0]:.4f} λ")
+    af = pat.af(positions, amplitudes=AMPLITUDES)
 af_db = Pattern.to_dB(af)
 
 psll_val, psll_angle = get_psll(af_db, pat.theta_deg)
@@ -68,10 +76,12 @@ if len(values) > 8:
 fig = plt.figure(figsize=(14, 5))
 
 ax1 = fig.add_subplot(1, 2, 1)
+title = f'{N_ELEMENTS} 元均匀直线阵 (d={SPACING}λ, 扫描={SCAN_ANGLE}°'
+title += ', 对称)' if SYMMETRIC else ')'
 plot_pattern_1d(ax1, pat.theta_deg, af_db,
                 peaks=(values, angles),
                 psll=(psll_val, psll_angle),
-                title=f'{N_ELEMENTS} 元均匀直线阵 (d={SPACING}λ, 扫描={SCAN_ANGLE}°)')
+                title=title)
 
 ax2 = fig.add_subplot(1, 2, 2, projection='polar')
 plot_pattern_polar(ax2, pat.theta_deg, af_db)

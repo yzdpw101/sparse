@@ -144,3 +144,47 @@ def test_af_dispatches_to_linear_af():
     af1 = pat.af(positions)
     af2 = pat.linear_af(positions)
     assert np.allclose(af1, af2)
+
+
+# ============================================================
+#  symmetric
+# ============================================================
+
+def test_symmetric_property():
+    """验证 symmetric 属性和默认值。"""
+    pat1 = Pattern()
+    assert not pat1.symmetric
+    pat2 = Pattern(symmetric=True)
+    assert pat2.symmetric
+
+
+def test_linear_af_symmetric_equivalent():
+    """对称阵和非对称阵输出应等价（关于原点对称的均匀阵列）。"""
+    pat_asym = Pattern(theta_deg_step=1.0)
+    pat_sym = Pattern(symmetric=True, theta_deg_step=1.0)
+
+    # 非对称：10 元，关于原点对称
+    full = np.linspace(-2.25, 2.25, 10)
+    half = full[full > 0]  # 半边 x > 0，不含中心
+
+    af_full = pat_asym.linear_af(full)
+    af_half = pat_sym.linear_af_symmetric(half, has_center=False)
+
+    assert np.allclose(af_full, af_half), "对称与非对称阵因子应等价"
+
+
+def test_linear_af_symmetric_with_center():
+    """含中心阵元的对称阵列。"""
+    pat = Pattern(symmetric=True, theta_deg_step=1.0)
+    # 5 元半边 (含中心 x=0 用 has_center=True)
+    half = np.array([0.5, 1.0])
+    af = pat.linear_af_symmetric(half, has_center=True)
+    assert af.shape == (181,)
+
+
+def test_af_dispatches_to_symmetric():
+    """symmetric=True 时 af() 应调用 symmetric。"""
+    pat = Pattern(symmetric=True, theta_deg_step=1.0)
+    half = np.array([0.5, 1.0, 1.5, 2.0, 2.5])
+    af = pat.af(half)
+    assert af.shape == (181,)

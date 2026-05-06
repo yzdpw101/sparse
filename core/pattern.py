@@ -7,13 +7,16 @@
 多频时根据频率比缩放波数。
 
 支持的维度组合（通过构造函数参数控制）：
-  阵列类型: 线阵 (phi 参数不传) / 平面阵 (传 phi 参数)
+  阵列类型: 线阵 / 平面阵 (array_type)
+  对称性:   非对称 / 对称 (symmetric)
   扫描角:   单角度 (theta0s 标量) / 多角度 (theta0s 数组)
   频率:     单频 (frequenciesGHz 标量) / 多频 (frequenciesGHz 数组)
 """
 
 from typing import Optional, Union, Literal
 import numpy as np
+
+TWO_PI = 2 * np.pi
 
 
 class Pattern:
@@ -23,6 +26,7 @@ class Pattern:
 
     Args:
         array_type: 阵列类型, "linear"=线阵, "planar"=平面阵
+        symmetric: 是否对称阵列，True 时只传半边位置
         theta_deg_start: 俯仰角起始（度）
         theta_deg_end: 俯仰角终止（度）
         theta_deg_step: 俯仰角步长（度）
@@ -37,6 +41,7 @@ class Pattern:
     def __init__(
         self,
         array_type: Literal["linear", "planar"] = "linear",
+        symmetric: bool = False,
         theta_deg_start: float = -90,
         theta_deg_end: float = 90,
         theta_deg_step: float = 0.1,
@@ -51,13 +56,15 @@ class Pattern:
         if array_type not in ("linear", "planar"):
             raise ValueError(f"array_type 必须是 'linear' 或 'planar', 实际 '{array_type}'")
         self._array_type = array_type
+        self._symmetric = symmetric
 
         # ── 频率 ──
         self.frequenciesGHz = np.atleast_1d(
             np.asarray(frequenciesGHz, dtype=float)
         )
         self._n_freq = len(self.frequenciesGHz)
-        self._ks = 2 * np.pi * np.ones(self._n_freq)
+        # k = 2π * (f / f₀), 单频时 f/f₀ = 1 → k = 2π
+        self._ks = TWO_PI * self.frequenciesGHz / self.frequenciesGHz[0]
 
         # ── theta 网格 ──
         self.theta_deg = np.arange(
@@ -119,6 +126,10 @@ class Pattern:
         return self._array_type == "planar"
 
     @property
+    def symmetric(self) -> bool:
+        return self._symmetric
+
+    @property
     def is_multi_freq(self) -> bool:
         return self._n_freq > 1
 
@@ -149,6 +160,9 @@ class Pattern:
             复数阵因子
         """
         if self._array_type == "linear":
+            if self._symmetric:
+                return self.linear_af_symmetric(positions_x, amplitudes=amplitudes,
+                                                phases=phases)
             return self.linear_af(positions_x, amplitudes, phases)
         if positions_y is None:
             raise ValueError("平面阵必须提供 positions_y")
@@ -166,44 +180,56 @@ class Pattern:
     ) -> np.ndarray:
         """线阵非对称阵因子。
 
-        对应 C++: Pattern::Linear::calcAF(deltaSinTheta, wlpos, excitations)
-        delta_sin 已在构造时预计算。
-
-        AF(θ) = Σ A_n · exp(j · 2π · x_n · (sinθ − sinθ₀))
+        AF(θ) = Σ A_n · exp(j · k · x_n · (sinθ − sinθ₀))
 
         Args:
             positions: 阵元 x 坐标（波长单位），shape (N,)
-            amplitudes: 激励幅度，shape (N,)，默认全 1
-            phases: 激励相位（弧度），shape (N,)，默认全 0
+            amplitudes: 激励幅度，shape (N,)，None=全 1
+            phases: 激励相位（弧度），shape (N,)，None=全 0
 
         Returns:
             复数阵因子
-              单频单角度: (Nθ,)
-              单频多角度: (Nscan, Nθ)
-              多频单角度: (Nfreq, Nθ)
-              多频多角度: (Nfreq, Nscan, Nθ)
         """
         positions = np.asarray(positions, dtype=float)
         n = len(positions)
-        amps = np.ones(n) if amplitudes is None else np.asarray(amplitudes, dtype=float)
-        phs = np.zeros(n) if phases is None else np.asarray(phases, dtype=float)
 
-        excitations = amps * np.exp(1j * phs)
+        has_amps = amplitudes is not None
+        has_phs = phases is not None
+
+        if has_amps:
+            amps = np.asarray(amplitudes, dtype=float)
+        if has_phs:
+            exc = np.exp(1j * np.asarray(phases, dtype=float))
+            if has_amps:
+                exc = amps * exc
 
         if self._n_freq == 1:
-            k = self._ks[0]
-            # phase: (N, *delta_sin_shape)
+            k = TWO_PI
             phase = k * np.outer(positions, self._delta_sin.reshape(-1))
             phase = phase.reshape(n, *self._delta_sin.shape)
-            # einsum('i,i...->...') 支持任意维度: (Nθ,) 或 (Nscan, Nθ)
-            return np.einsum("i,i...->...", excitations, np.exp(1j * phase))
+            e = np.exp(1j * phase)
 
-        # 多频 → (Nfreq, *delta_sin_shape)
+            if not has_amps and not has_phs:
+                return np.sum(e, axis=0)
+            if not has_phs:
+                b = amps.reshape(n, *((1,) * (e.ndim - 1)))
+                return np.sum(b * e, axis=0)
+            return np.einsum("i,i...->...", exc, e)
+
+        # 多频
         afs = []
         for k in self._ks:
             phase = k * np.outer(positions, self._delta_sin.reshape(-1))
             phase = phase.reshape(n, *self._delta_sin.shape)
-            afs.append(np.einsum("i,i...->...", excitations, np.exp(1j * phase)))
+            e = np.exp(1j * phase)
+
+            if not has_amps and not has_phs:
+                afs.append(np.sum(e, axis=0))
+            elif not has_phs:
+                b = amps.reshape(n, *((1,) * (e.ndim - 1)))
+                afs.append(np.sum(b * e, axis=0))
+            else:
+                afs.append(np.einsum("i,i...->...", exc, e))
         return np.array(afs)
 
     def linear_af_symmetric(
@@ -213,8 +239,69 @@ class Pattern:
         amplitudes: Optional[np.ndarray] = None,
         phases: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        """线阵对称阵因子。框架。"""
-        raise NotImplementedError("待实现")
+        """线阵对称阵因子。
+
+        AF = Σ 2·A_n·cos(k·x_n·(sinθ−sinθ₀))  (+ center)
+
+        Args:
+            half_positions: 半边阵元 x 坐标（x > 0），shape (Nh,)
+            has_center: 是否有中心阵元（x=0，激励为 1+0j）
+            amplitudes: 半边激励幅度，shape (Nh,)，None=全 1
+            phases: 半边激励相位（弧度），shape (Nh,)，None=全 0
+
+        Returns:
+            复数阵因子
+        """
+        half_positions = np.asarray(half_positions, dtype=float)
+        nh = len(half_positions)
+
+        has_amps = amplitudes is not None
+        has_phs = phases is not None
+
+        if has_amps:
+            amps = np.asarray(amplitudes, dtype=float)
+        if has_phs:
+            exc = np.exp(1j * np.asarray(phases, dtype=float))
+            if has_amps:
+                exc = amps * exc
+
+        if self._n_freq == 1:
+            k = TWO_PI
+            phase = k * np.outer(half_positions, self._delta_sin.reshape(-1))
+            phase = phase.reshape(nh, *self._delta_sin.shape)
+            c = np.cos(phase)
+
+            if not has_amps and not has_phs:
+                af = 2 * np.sum(c, axis=0)
+            elif not has_phs:
+                b = amps.reshape(nh, *((1,) * (c.ndim - 1)))
+                af = 2 * np.sum(b * c, axis=0)
+            else:
+                af = np.einsum("i,i...->...", exc, 2 * c)
+
+            if has_center:
+                af = af + 1.0
+            return af
+
+        # 多频
+        afs = []
+        for k in self._ks:
+            phase = k * np.outer(half_positions, self._delta_sin.reshape(-1))
+            phase = phase.reshape(nh, *self._delta_sin.shape)
+            c = np.cos(phase)
+
+            if not has_amps and not has_phs:
+                af = 2 * np.sum(c, axis=0)
+            elif not has_phs:
+                b = amps.reshape(nh, *((1,) * (c.ndim - 1)))
+                af = 2 * np.sum(b * c, axis=0)
+            else:
+                af = np.einsum("i,i...->...", exc, 2 * c)
+
+            if has_center:
+                af = af + 1.0
+            afs.append(af)
+        return np.array(afs)
 
     # ============================================================
     #  平面阵
