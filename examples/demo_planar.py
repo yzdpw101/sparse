@@ -19,15 +19,15 @@ from visualization import plot_pattern_1d, plot_pattern_2d, plot_pattern_3d
 #  调参区域
 # ═══════════════════════════════════════════════════════════
 
-N_X = 4                  # x 方向阵元数
-N_Y = 4                  # y 方向阵元数
+N_X = 10                  # x 方向阵元数
+N_Y = 1                  # y 方向阵元数
 DX = 0.5                 # x 方向间距（波长单位）
 DY = 0.5                 # y 方向间距（波长单位）
 SCAN_THETA = 0.0         # 波束指向俯仰角（度）
 SCAN_PHI = 0.0           # 波束指向方位角（度）
 THETA_START = -90        # θ 起始（度）
 THETA_END = 90           # θ 终止（度）
-THETA_STEP = 2.0         # θ 步长（度）
+THETA_STEP = 0.1         # θ 步长（度）
 PHI_START = -90          # φ 起始（度）
 PHI_END = 90             # φ 终止（度）
 PHI_STEP = 2.0           # φ 步长（度）
@@ -86,36 +86,39 @@ af_db = Pattern.to_dB(af)
 #  PSLL 分析
 # ═══════════════════════════════════════════════════════════
 
-# 主瓣排除区域（扫描角附近）
-mr_theta = (SCAN_THETA - 15, SCAN_THETA + 15)
-mr_phi = (SCAN_PHI - 20, SCAN_PHI + 20) if SCAN_PHI != 0 else (-20, 20)
-mainlobe_region = (mr_theta, mr_phi)
+# φ=0° 平面 1D 切片（与 demo_linear 直接对比）
+j_zero = np.argmin(np.abs(pat.phi_deg))
+af_db_phi0 = af_db[:, j_zero]
 
-# 各 φ 平面 PSLL
-pslls, coord2d = get_psll(af_db, pat.theta_deg, pat.phi_deg,
-                           mainlobe_region=mainlobe_region)
+psll_val, psll_angle = get_psll(af_db_phi0, pat.theta_deg)
+print(f"\n--- PSLL 分析 (φ=0° 平面) ---")
+print(f"PSLL: {psll_val:.4f} dB @ {psll_angle:.4f}°")
+
+values, angles = find_peaks(af_db_phi0, pat.theta_deg)
+print(f"检测到 {len(values)} 个峰值:")
+for i, (v, a) in enumerate(zip(values[:8], angles[:8])):
+    tag = "主瓣" if i == 0 else f"副瓣 #{i}"
+    print(f"  {tag}: {v:.4f} dB @ {a:.4f}°")
+if len(values) > 8:
+    print(f"  ... (共 {len(values)} 个)")
+
+# 各 φ 平面 PSLL（无 mainlobe_region）
+print(f"\n--- 各 φ 平面 PSLL ---")
+pslls, coord2d = get_psll(af_db, pat.theta_deg, pat.phi_deg)
 worst_j = int(np.nanargmax(pslls))
-print(f"\n--- PSLL 分析 ---")
 print(f"最差 φ 平面: φ={pat.phi_deg[worst_j]:.1f}°, PSLL={pslls[worst_j]:.4f} dB "
       f"@ θ={coord2d[worst_j, 0]:.2f}°")
 
 # 全平面 PSLL
 overall_psll, overall_coord = get_overall_psll(
-    af_db, pat.theta_deg, pat.phi_deg, mainlobe_region=mainlobe_region)
+    af_db, pat.theta_deg, pat.phi_deg)
 print(f"全平面 PSLL: {overall_psll:.4f} dB "
       f"@ (θ={overall_coord[0]:.2f}°, φ={overall_coord[1]:.2f}°)")
 
-# φ=SCAN_PHI 平面的 1D 切片
+# φ=SCAN_PHI 平面
 j_scan = np.argmin(np.abs(pat.phi_deg - SCAN_PHI))
-psll_scan, theta_scan = get_psll(
-    af_db[:, j_scan], pat.theta_deg, mainlobe_region=mr_theta)
+psll_scan, theta_scan = get_psll(af_db[:, j_scan], pat.theta_deg)
 print(f"φ={pat.phi_deg[j_scan]:.1f}° 平面 PSLL: {psll_scan:.4f} dB")
-
-# φ=0° 平面
-j_zero = np.argmin(np.abs(pat.phi_deg))
-psll_zero, theta_zero = get_psll(
-    af_db[:, j_zero], pat.theta_deg, mainlobe_region=mr_theta)
-print(f"φ={pat.phi_deg[j_zero]:.1f}° 平面 PSLL: {psll_zero:.4f} dB")
 
 # ═══════════════════════════════════════════════════════════
 #  绘图
@@ -138,10 +141,9 @@ plot_pattern_3d(ax2, pat.theta_deg, pat.phi_deg, af_db,
 
 # ── (c) φ=0° 切片 1D ──
 ax3 = fig.add_subplot(2, 3, 3)
-vals, angs = find_peaks(af_db[:, j_zero], pat.theta_deg)
-plot_pattern_1d(ax3, pat.theta_deg, af_db[:, j_zero],
-                peaks=(vals, angs),
-                psll=(psll_zero, theta_zero),
+plot_pattern_1d(ax3, pat.theta_deg, af_db_phi0,
+                peaks=(values, angles),
+                psll=(psll_val, psll_angle),
                 title=f"φ=0° 切片 1D 方向图")
 
 # ── (d) φ=SCAN_PHI° 切片 1D ──
