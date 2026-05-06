@@ -188,3 +188,165 @@ def test_af_dispatches_to_symmetric():
     half = np.array([0.5, 1.0, 1.5, 2.0, 2.5])
     af = pat.af(half)
     assert af.shape == (181,)
+
+
+# ============================================================
+#  planar
+# ============================================================
+
+def test_planar_af_shape():
+    """平面阵输出形状应为 (Nθ, Nφ)。"""
+    pat = Pattern(
+        array_type="planar",
+        theta_deg_step=1.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=2.0,
+    )
+    n = 4
+    x = np.array([0.0, 0.5, 0.0, 0.5])
+    y = np.array([0.0, 0.0, 0.5, 0.5])
+    af = pat.planar_af(x, y)
+    assert af.shape == (181, 91), f"期望 (181, 91), 实际 {af.shape}"
+
+
+def test_planar_af_peak_at_broadside():
+    """平面阵法向 (θ=0°) 应有峰值（AF 幅度 = 阵元数）。"""
+    pat = Pattern(
+        array_type="planar",
+        theta_deg_step=0.5,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=2.0,
+    )
+    x = np.array([0.0, 0.5, -0.5, 0.0, 0.5, -0.5])
+    y = np.array([0.0, 0.0, 0.0, 0.5, 0.5, -0.5])
+    af = pat.planar_af(x, y)
+    # 法向切片：θ=0° 对应 theta_deg 的中间索引
+    idx_theta0 = len(pat.theta_deg) // 2
+    # 法向 AF 应为阵元数（所有阵元同相）
+    assert np.allclose(np.abs(af[idx_theta0, :]), len(x), atol=1e-10), \
+        "法向所有 φ 的 |AF| 应等于阵元数"
+    # 非零角度 AF 应小于阵元数
+    assert np.max(np.abs(af[0, :])) < len(x), "偏离法向 AF 应变小"
+
+
+def test_af_planar_dispatch():
+    """array_type='planar' 时 af() 应调用 planar_af()。"""
+    pat = Pattern(
+        array_type="planar",
+        theta_deg_step=1.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=5.0,
+    )
+    x = np.array([0.0, 0.5])
+    y = np.array([0.0, 0.5])
+    af = pat.af(x, y)
+    assert af.shape == (181, 37)
+
+
+# ============================================================
+#  planar_af_symmetric
+# ============================================================
+
+def test_planar_af_symmetric_equivalent():
+    """四象限对称阵列：planar_af 和 planar_af_symmetric 应等价。"""
+    pat_asym = Pattern(
+        array_type="planar",
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=5.0,
+    )
+    pat_sym = Pattern(
+        array_type="planar", symmetric=True,
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=5.0,
+    )
+
+    # 第一象限的两个阵元
+    q1_x = np.array([0.3, 0.7])
+    q1_y = np.array([0.4, 0.6])
+
+    # 构造完整四象限阵列（不含中心）
+    full_x = np.concatenate([q1_x, -q1_x, -q1_x, q1_x])
+    full_y = np.concatenate([q1_y, q1_y, -q1_y, -q1_y])
+
+    af_full = pat_asym.planar_af(full_x, full_y)
+    af_sym = pat_sym.planar_af_symmetric(q1_x, q1_y, has_center=False)
+
+    assert np.allclose(af_full, af_sym), "对称与非对称平面阵因子应等价"
+
+
+def test_planar_af_symmetric_with_center():
+    """四象限对称 + 中心阵元。"""
+    pat = Pattern(
+        array_type="planar", symmetric=True,
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=5.0,
+    )
+
+    q1_x = np.array([0.5, 1.0])
+    q1_y = np.array([0.5, 1.0])
+
+    # 非对称版本：4*2 + 中心 = 9 阵元
+    full_x = np.concatenate([[0.0], q1_x, -q1_x, -q1_x, q1_x])
+    full_y = np.concatenate([[0.0], q1_y, q1_y, -q1_y, -q1_y])
+
+    pat_asym = Pattern(
+        array_type="planar",
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=5.0,
+    )
+
+    af_full = pat_asym.planar_af(full_x, full_y)
+    af_sym = pat.planar_af_symmetric(q1_x, q1_y, has_center=True)
+
+    assert np.allclose(af_full, af_sym), \
+        "含中心阵元的对称/非对称平面阵因子应等价"
+
+
+def test_planar_af_symmetric_axis_element():
+    """轴上阵元（y=0）只有 2 重对称。"""
+    pat_sym = Pattern(
+        array_type="planar", symmetric=True,
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=5.0,
+    )
+    pat_asym = Pattern(
+        array_type="planar",
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=5.0,
+    )
+
+    # 第一象限 x 轴上阵元 (x>0, y=0)
+    hx = np.array([0.5, 0.8])
+    hy = np.array([0.0, 0.0])
+
+    # 完整阵列：两侧对称 (x,0) 和 (-x,0)
+    full_x = np.concatenate([hx, -hx])
+    full_y = np.concatenate([hy, hy])
+
+    af_full = pat_asym.planar_af(full_x, full_y)
+    af_sym = pat_sym.planar_af_symmetric(hx, hy, has_center=False)
+
+    assert np.allclose(af_full, af_sym), "轴上阵元 (2重对称) 应等价"
+
+
+def test_planar_af_symmetric_shape():
+    """对称平面阵输出形状检查。"""
+    pat = Pattern(
+        array_type="planar", symmetric=True,
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=5.0,
+    )
+    hx = np.array([0.3, 0.7])
+    hy = np.array([0.4, 0.6])
+    af = pat.planar_af_symmetric(hx, hy)
+    assert af.shape == (91, 37), f"期望 (91, 37), 实际 {af.shape}"
+
+
+def test_af_dispatches_to_planar_symmetric():
+    """symmetric=True + planar 时 af() 应调用 planar_af_symmetric()。"""
+    pat = Pattern(
+        array_type="planar", symmetric=True,
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=5.0,
+    )
+    hx = np.array([0.3, 0.7])
+    hy = np.array([0.4, 0.6])
+    af = pat.af(hx, hy)
+    assert af.shape == (91, 37)

@@ -49,10 +49,10 @@ E:\Documents\南理工\阵列天线稀疏\Sparse\
 - [x] `core/pattern.py` — 方向图计算器
   - [x] `__init__()` 预计算角度网格和 EM 常量
   - [x] `linear_af()` — 线阵非对称单频单角度
-  - [ ] `linear_af_symmetric()` — 对称阵列
-  - [ ] `linear_af_multi_scan()` — 多角度扫描
-  - [ ] `planar_af()` — 平面阵
-  - [ ] `planar_uv_af()` — UV 空间
+  - [x] `linear_af_symmetric()` — 对称阵列
+  - [x] `linear_af_multi_scan()` — 多角度扫描
+  - [x] `planar_af()` — 平面阵
+  - [x] `planar_af_symmetric()` — 平面阵四象限对称
   - [x] `normalize()` — 归一化 dB 方向图
 - [x] `core/element_pattern.py` — 各向同性、cosine-q、贴片、HFSS 导入
 - [x] 基础测试通过 (12 tests)
@@ -85,11 +85,12 @@ af = pat.linear_af(positions, amplitudes, phases)
 | C++ | Python | 说明 |
 |---|---|---|
 | `ElementBlock` | `Element` dataclass + `ArrayGeometry` | |
-| `calcAF(deltaSinTheta, wlpos, exc)` | `Pattern.__init__` 预算 `_delta_sin` + `linear_af()` | 角度预计算，调用只传位置 |
-| `calcSymmetryAF` | `linear_af_symmetric()` | 待实现 |
-| `calcMultiFreqAF` | 多个 Pattern 实例 | 待实现 |
-| `calcMultAngleAF` | `__init__(scan_thetas=array)` | 待实现 |
-| `calcUVAF` | `planar_uv_af()` | 待实现 |
+| `calcAF(deltaSinTheta, wlpos, exc)` | `Pattern.__init__` 预算 `_delta_sin` + `linear_af(wl_positions)` | 参数名 wl_ 前缀表示以 λ₀ 为单位 |
+| `calcSymmetryAF` | `linear_af_symmetric(half_wl_positions)` | |
+| `calcMultiFreqAF` | `Pattern(frequenciesGHz=array)` | 多频自动切换波数 |
+| `calcMultAngleAF` | `Pattern(theta0s_deg=array)` | 多角度自动广播 |
+| `calcUVAF` | `planar_af(wl_x, wl_y)` | |
+| `calcSymmetryUVAF` | `planar_af_symmetric(quarter_wl_x, quarter_wl_y)` | |
 | `extrema1D` + Main.cpp fitness | 调用方自行处理 | MSLL/HPBW 不在 Pattern 中 |
 
 ## 开发约定
