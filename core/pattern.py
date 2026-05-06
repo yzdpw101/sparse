@@ -30,11 +30,13 @@ class Pattern:
         theta_deg_start: 俯仰角起始（度）
         theta_deg_end: 俯仰角终止（度）
         theta_deg_step: 俯仰角步长（度）
-        theta0s_deg: 波束指向俯仰角（度），标量=单角度，数组=多角度
+        theta0s_deg: 波束指向俯仰角（度），标量=单角度，数组=多角度。
+                     平面阵时与 phi0s_deg broadcast 为 (Nscan,) 配对。
         phi_deg_start: 方位角起始（度），array_type="planar" 时必须指定
         phi_deg_end: 方位角终止（度）
         phi_deg_step: 方位角步长（度）
-        phi0s_deg: 波束指向方位角（度），标量=单个，数组=多个
+        phi0s_deg: 波束指向方位角（度），标量=单个，数组=多个，默认 0°。
+                   与 theta0s_deg broadcast：短的自动填充，等长则一一配对。
         frequenciesGHz: 工作频率（GHz），标量=单频，数组=多频
     """
 
@@ -89,8 +91,35 @@ class Pattern:
         self.theta0s_deg = np.atleast_1d(
             np.asarray(theta0s_deg, dtype=float)
         )
-        self._n_scan = len(self.theta0s_deg)
         self._sin_theta0s = np.sin(np.deg2rad(self.theta0s_deg))
+
+        # 平面阵：phi0s 与 theta0s broadcast 为配对扫描方向 (Nscan,)
+        if array_type == "planar":
+            phi0s = np.atleast_1d(
+                np.asarray(phi0s_deg if phi0s_deg is not None else 0.0, dtype=float)
+            )
+            n_theta0 = len(self.theta0s_deg)
+            n_phi0 = len(phi0s)
+            if n_theta0 > 1 and n_phi0 > 1 and n_theta0 != n_phi0:
+                raise ValueError(
+                    f"theta0s ({n_theta0}) 和 phi0s ({n_phi0}) 长度不一致，"
+                    f"无法配对为扫描方向"
+                )
+            self._n_scan = max(n_theta0, n_phi0)
+
+            # broadcast theta0s
+            if n_theta0 == 1 and self._n_scan > 1:
+                self.theta0s_deg = np.full(self._n_scan, self.theta0s_deg[0])
+                self._sin_theta0s = np.full(self._n_scan, self._sin_theta0s[0])
+            # broadcast phi0s
+            if n_phi0 == 1 and self._n_scan > 1:
+                phi0s = np.full(self._n_scan, phi0s[0])
+            self._phi0s_deg = phi0s
+            self._sin_phi0s = np.sin(np.deg2rad(phi0s))
+            self._cos_phi0s = np.cos(np.deg2rad(phi0s))
+        else:
+            self._n_scan = len(self.theta0s_deg)
+            self._phi0s_deg = None
 
         # 预计算 delta_sin = sinθ − sinθ₀
         _delta = self._sin_theta[None, :] - self._sin_theta0s[:, None]
@@ -99,41 +128,24 @@ class Pattern:
         else:
             self._delta_sin = _delta              # (Nscan, Nθ)
 
-        # 平面阵扫描角预处理
-        if array_type == "planar":
-            phi0s = np.atleast_1d(
-                np.asarray(phi0s_deg if phi0s_deg is not None else 0.0, dtype=float)
-            )
-            self._phi0s_deg = phi0s
-            self._sin_phi0s = np.sin(np.deg2rad(phi0s))
-            self._cos_phi0s = np.cos(np.deg2rad(phi0s))
-        else:
-            self._phi0s_deg = None
-
         # ── 平面阵 UV 空间预计算 ──
         if array_type == "planar":
-            # deltaU = sinθ·cosφ − sinθ₀·cosφ₀  (Nθ, Nφ)
-            # deltaV = sinθ·sinφ − sinθ₀·sinφ₀  (Nθ, Nφ)
+            # deltaU = sinθ·cosφ − sinθ₀·cosφ₀
+            # deltaV = sinθ·sinφ − sinθ₀·sinφ₀
+            sin_th = self._sin_theta[None, :, None]   # (1, Nθ, 1)
+            cos_ph = self._cos_phi[None, None, :]     # (1, 1, Nφ)
+            sin_ph = self._sin_phi[None, None, :]     # (1, 1, Nφ)
+            sin0s = self._sin_theta0s[:, None, None]   # (Nscan, 1, 1)
+            c0s = self._cos_phi0s[:, None, None]      # (Nscan, 1, 1)
+            s0s = self._sin_phi0s[:, None, None]      # (Nscan, 1, 1)
+            du = sin_th * cos_ph - sin0s * c0s         # (Nscan, Nθ, Nφ)
+            dv = sin_th * sin_ph - sin0s * s0s
             if self._n_scan == 1:
-                sin0 = self._sin_theta0s[0]
-                cos0 = self._cos_phi0s[0]
-                sinp0 = self._sin_phi0s[0]
-                self._delta_u = (
-                    np.outer(self._sin_theta, self._cos_phi) - sin0 * cos0
-                )
-                self._delta_v = (
-                    np.outer(self._sin_theta, self._sin_phi) - sin0 * sinp0
-                )
+                self._delta_u = du[0]
+                self._delta_v = dv[0]
             else:
-                # 多角度: (Nscan, Nθ, Nφ)
-                sin_th = self._sin_theta[None, :, None]   # (1, Nθ, 1)
-                cos_ph = self._cos_phi[None, None, :]     # (1, 1, Nφ)
-                sin_ph = self._sin_phi[None, None, :]     # (1, 1, Nφ)
-                sin0s = self._sin_theta0s[:, None, None]   # (Nscan, 1, 1)
-                c0s = self._cos_phi0s[:, None, None]      # (Nscan, 1, 1)
-                s0s = self._sin_phi0s[:, None, None]      # (Nscan, 1, 1)
-                self._delta_u = sin_th * cos_ph - sin0s * c0s
-                self._delta_v = sin_th * sin_ph - sin0s * s0s
+                self._delta_u = du
+                self._delta_v = dv
         else:
             self._delta_u = None
             self._delta_v = None

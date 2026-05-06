@@ -465,3 +465,98 @@ def test_multi_scan_identical_symmetric():
     af = pat.linear_af_symmetric(half)
     assert af.shape[0] == 2
     assert np.allclose(af[0], af[1]), "相同扫描角的两组对称线阵结果应一致"
+
+
+# ============================================================
+#  theta0s / phi0s broadcast 配对
+# ============================================================
+
+def test_planar_theta_scalar_phi_array():
+    """theta0s=标量, phi0s=数组 → broadcast 为多扫描。"""
+    pat = Pattern(
+        array_type="planar",
+        theta0s_deg=30.0,
+        phi0s_deg=np.array([0.0, 45.0, 90.0]),
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=10.0,
+    )
+    assert pat.is_multi_scan
+    x = np.array([0.0, 0.5])
+    y = np.array([0.0, 0.5])
+    af = pat.planar_af(x, y)
+    assert af.shape[0] == 3, f"期望 3 个扫描方向, 实际 {af.shape[0]}"
+    # 三个扫描方向不同
+    assert not np.allclose(af[0], af[1]), "φ=0° 和 φ=45° 扫描应不同"
+
+
+def test_planar_theta_array_phi_scalar():
+    """theta0s=数组, phi0s=标量 → broadcast 为多扫描。"""
+    pat = Pattern(
+        array_type="planar",
+        theta0s_deg=np.array([0.0, 30.0]),
+        phi0s_deg=0.0,
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=10.0,
+    )
+    assert pat.is_multi_scan
+    x = np.array([0.0, 0.5, -0.5, 0.0])
+    y = np.array([0.0, 0.0, 0.0, 0.5])
+    af = pat.planar_af(x, y)
+    assert af.shape[0] == 2, f"期望 2 个扫描方向, 实际 {af.shape[0]}"
+    # 法向和 30° 扫描应不同
+    assert not np.allclose(af[0], af[1]), "θ₀=0° 和 θ₀=30° 扫描应不同"
+
+
+def test_planar_both_array_paired():
+    """theta0s 和 phi0s 等长数组 → 一一配对。"""
+    pat = Pattern(
+        array_type="planar",
+        theta0s_deg=np.array([0.0, 30.0]),
+        phi0s_deg=np.array([0.0, 45.0]),
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=10.0,
+    )
+    x = np.array([0.0, 0.5])
+    y = np.array([0.0, 0.5])
+    af = pat.planar_af(x, y)
+    assert af.shape[0] == 2
+    # 扫描方向 1: (0°,0°), 扫描方向 2: (30°,45°)
+    assert not np.allclose(af[0], af[1]), "不同扫描方向应不同"
+
+
+def test_planar_both_array_mismatch_error():
+    """theta0s 和 phi0s 长度不等(都>1) → ValueError。"""
+    try:
+        Pattern(
+            array_type="planar",
+            theta0s_deg=np.array([0.0, 30.0, 45.0]),
+            phi0s_deg=np.array([0.0, 90.0]),
+            theta_deg_step=2.0,
+            phi_deg_start=-90, phi_deg_end=90, phi_deg_step=10.0,
+        )
+        assert False, "应抛出 ValueError"
+    except ValueError:
+        pass
+
+
+def test_planar_scan_angle_peak_at_scanned_direction():
+    """验证平面阵扫描到 (θ₀=30°, φ₀=45°) 时峰值在该方向。"""
+    pat = Pattern(
+        array_type="planar",
+        theta0s_deg=30.0,
+        phi0s_deg=45.0,
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=5.0,
+    )
+    # 4×4 均匀面阵
+    n = 4
+    xx, yy = np.meshgrid(np.arange(n) * 0.5, np.arange(n) * 0.5)
+    x, y = xx.ravel(), yy.ravel()
+    af_db = Pattern.to_dB(pat.planar_af(x, y))
+
+    # 峰值应在 (θ≈30°, φ≈45°)
+    idx_peak = np.unravel_index(np.argmax(af_db), af_db.shape)
+    theta_peak = pat.theta_deg[idx_peak[0]]
+    phi_peak = pat.phi_deg[idx_peak[1]]
+    assert abs(theta_peak - 30.0) < 5.0, f"峰值 θ 应在 30° 附近, 实际 {theta_peak:.1f}°"
+    assert abs(phi_peak - 45.0) < 10.0, f"峰值 φ 应在 45° 附近, 实际 {phi_peak:.1f}°"
