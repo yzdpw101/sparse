@@ -29,8 +29,8 @@ def test_asymmetric_fixed_aperture():
 
 
 def test_with_dmax():
-    """有 dmax: 非对称, dmax=1.0。"""
-    mapper = LMMapper(Ne=10, L=5.0, dmin=0.5, dmax=1.0)
+    """有 dmax: 非对称, dmax=1.0, L 需 ≥ dmax*(Ne-1)。"""
+    mapper = LMMapper(Ne=10, L=10.0, dmin=0.5, dmax=1.0)
     opt = np.zeros(mapper.n_vars)
     pos = mapper.synthesize(opt)
     assert np.all(np.diff(pos) >= 0.5 - 1e-10)

@@ -59,8 +59,8 @@ class LMMapper:
             raise ValueError(f"dmin 必须为正数, 实际 {dmin}")
         if dmax is not None and dmax <= dmin:
             raise ValueError(f"dmax ({dmax}) 必须大于 dmin ({dmin})")
-        if dmax is not None and dmax * (Ne - 1) < L:
-            raise ValueError(f"dmax * (Ne-1) = {dmax * (Ne - 1)} < L = {L}")
+        if dmax is not None and dmax * (Ne - 1) > L:
+            raise ValueError(f"dmax * (Ne-1) = {dmax * (Ne - 1)} > L = {L}")
         if dmin * (Ne - 1) > L:
             raise ValueError(f"dmin * (Ne-1) = {dmin * (Ne - 1)} > L = {L}")
 
