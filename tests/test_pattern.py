@@ -350,3 +350,118 @@ def test_af_dispatches_to_planar_symmetric():
     hy = np.array([0.4, 0.6])
     af = pat.af(hx, hy)
     assert af.shape == (91, 37)
+
+
+# ============================================================
+#  线阵 vs 平面阵 φ=0° 切片一致性
+# ============================================================
+
+def test_linear_vs_planar_phi0():
+    """沿 x 轴排列的平面阵 φ=0° 切片应与线阵结果一致。"""
+    positions = np.linspace(-2.25, 2.25, 10)
+
+    pat_lin = Pattern(theta_deg_step=1.0)
+    af_lin = pat_lin.linear_af(positions)
+
+    pat_pl = Pattern(
+        array_type="planar",
+        theta_deg_step=1.0,
+        phi_deg_start=0, phi_deg_end=0, phi_deg_step=1.0,
+    )
+    af_pl = pat_pl.planar_af(positions, np.zeros_like(positions))
+
+    assert np.allclose(af_lin, af_pl[:, 0]), "线阵与平面阵 φ=0° 切片应一致"
+
+
+def test_linear_vs_planar_psll():
+    """线阵和平面阵(φ=0°)的 PSLL 应一致。"""
+    from core.analysis import get_psll
+
+    positions = np.linspace(-2.25, 2.25, 10)
+
+    pat_lin = Pattern(theta_deg_step=0.1)
+    af_lin_db = Pattern.to_dB(pat_lin.linear_af(positions))
+    psll_lin, _ = get_psll(af_lin_db, pat_lin.theta_deg)
+
+    pat_pl = Pattern(
+        array_type="planar",
+        theta_deg_step=0.1,
+        phi_deg_start=0, phi_deg_end=0, phi_deg_step=1.0,
+    )
+    af_pl_db = Pattern.to_dB(pat_pl.planar_af(positions, np.zeros_like(positions)))
+    psll_pl, _ = get_psll(af_pl_db[:, 0], pat_pl.theta_deg)
+
+    assert abs(psll_lin - psll_pl) < 0.01, \
+        f"线阵 PSLL={psll_lin:.4f}, 平面阵 PSLL={psll_pl:.4f}"
+
+
+# ============================================================
+#  多频 / 多角度一致性（相同参数→相同结果）
+# ============================================================
+
+def test_multi_freq_identical_linear():
+    """两个相同频率的线阵结果应一致。"""
+    positions = np.linspace(-2.25, 2.25, 10)
+    pat = Pattern(frequenciesGHz=np.array([1.0, 1.0]), theta_deg_step=1.0)
+    af = pat.linear_af(positions)
+    assert af.shape[0] == 2
+    assert np.allclose(af[0], af[1]), "相同频率的两组结果应一致"
+
+
+def test_multi_scan_identical_linear():
+    """两个相同扫描角的线阵结果应一致。"""
+    positions = np.linspace(-2.25, 2.25, 10)
+    pat = Pattern(theta0s_deg=np.array([0.0, 0.0]), theta_deg_step=1.0)
+    af = pat.linear_af(positions)
+    assert af.shape[0] == 2
+    assert np.allclose(af[0], af[1]), "相同扫描角的两组结果应一致"
+
+
+def test_multi_freq_identical_planar():
+    """两个相同频率的平面阵结果应一致。"""
+    x = np.array([0.0, 0.5, -0.5, 0.0])
+    y = np.array([0.0, 0.0, 0.0, 0.5])
+    pat = Pattern(
+        array_type="planar",
+        frequenciesGHz=np.array([1.0, 1.0]),
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=10.0,
+    )
+    af = pat.planar_af(x, y)
+    assert af.shape[0] == 2
+    assert np.allclose(af[0], af[1]), "相同频率的两组平面阵结果应一致"
+
+
+def test_multi_scan_identical_planar():
+    """两个相同扫描角的平面阵结果应一致。"""
+    x = np.array([0.0, 0.5, -0.5])
+    y = np.array([0.0, 0.0, 0.0])
+    pat = Pattern(
+        array_type="planar",
+        theta0s_deg=np.array([0.0, 0.0]),
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=10.0,
+    )
+    af = pat.planar_af(x, y)
+    assert af.shape[0] == 2
+    assert np.allclose(af[0], af[1]), "相同扫描角的两组平面阵结果应一致"
+
+
+def test_multi_freq_identical_symmetric():
+    """两个相同频率的对称线阵结果应一致。"""
+    half = np.array([0.5, 1.0, 1.5])
+    pat = Pattern(symmetric=True, frequenciesGHz=np.array([1.0, 1.0]),
+                  theta_deg_step=1.0)
+    af = pat.linear_af_symmetric(half)
+    assert af.shape[0] == 2
+    assert np.allclose(af[0], af[1]), "相同频率的两组对称线阵结果应一致"
+
+
+def test_multi_scan_identical_symmetric():
+    """两个相同扫描角的对称线阵结果应一致。"""
+    half = np.array([0.5, 1.0, 1.5])
+    pat = Pattern(symmetric=True, theta0s_deg=np.array([0.0, 0.0]),
+                  theta_deg_step=1.0)
+    af = pat.linear_af_symmetric(half)
+    assert af.shape[0] == 2
+    assert np.allclose(af[0], af[1]), "相同扫描角的两组对称线阵结果应一致"
