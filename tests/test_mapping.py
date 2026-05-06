@@ -13,8 +13,28 @@ def test_asymmetric():
     opt = np.zeros(mapper.n_vars)
     pos = mapper.synthesize(opt)
     assert len(pos) == 17
-    spacings = np.diff(pos)
-    assert np.all(spacings >= 0.5 - 1e-10)
+    assert np.all(np.diff(pos) >= 0.5 - 1e-10)
+
+
+def test_asymmetric_fixed_aperture():
+    """非对称固定孔径: 10 元, L=4.5, dmin=0.5。"""
+    mapper = LMMapper(Ne=10, L=4.5, dmin=0.5,
+                      is_fixed_aperture=True)
+    assert mapper.n_vars == 8
+    opt = np.zeros(mapper.n_vars)
+    pos = mapper.synthesize(opt)
+    assert abs(pos[0] + 2.25) < 1e-10
+    assert abs(pos[-1] - 2.25) < 1e-10
+    assert np.all(np.diff(pos) >= 0.5 - 1e-10)
+
+
+def test_with_dmax():
+    """有 dmax: 非对称, dmax=1.0。"""
+    mapper = LMMapper(Ne=10, L=5.0, dmin=0.5, dmax=1.0)
+    opt = np.zeros(mapper.n_vars)
+    pos = mapper.synthesize(opt)
+    assert np.all(np.diff(pos) >= 0.5 - 1e-10)
+    assert np.all(np.diff(pos) <= 1.0 + 1e-10)
 
 
 # ── 偶对称 ──
@@ -30,6 +50,18 @@ def test_even_symmetric():
     assert np.allclose(pos[:8], -pos[8:][::-1])
 
 
+def test_even_symmetric_fixed_aperture():
+    """偶对称固定孔径: 10 元, L=4.5, dmin=0.5。"""
+    mapper = LMMapper(Ne=10, L=4.5, dmin=0.5,
+                      is_symmetric=True, is_fixed_aperture=True)
+    assert mapper.n_vars == 3
+    opt = np.zeros(mapper.n_vars)
+    pos = mapper.synthesize(opt)
+    assert abs(pos[0] + 2.25) < 1e-10
+    assert abs(pos[-1] - 2.25) < 1e-10
+    assert np.allclose(pos[:5], -pos[5:][::-1])
+
+
 # ── 奇对称 ──
 
 def test_odd_symmetric():
@@ -40,9 +72,21 @@ def test_odd_symmetric():
     opt = np.zeros(mapper.n_vars)
     pos = mapper.synthesize(opt)
     assert len(pos) == 17
-    assert abs(pos[8]) < 1e-10  # 中心在 x=0
+    assert abs(pos[8]) < 1e-10
     assert np.allclose(pos[:8], -pos[9:][::-1])
     assert np.all(np.diff(pos) >= 0.5 - 1e-10)
+
+
+def test_odd_symmetric_fixed_aperture():
+    """奇对称固定孔径: 17 元, n_vars = (17+1)/2 - 2 = 7。"""
+    mapper = LMMapper(Ne=17, L=10.0, dmin=0.5,
+                      is_symmetric=True, is_fixed_aperture=True)
+    assert mapper.n_vars == 7
+    opt = np.zeros(mapper.n_vars)
+    pos = mapper.synthesize(opt)
+    assert abs(pos[0] + 5.0) < 1e-10
+    assert abs(pos[-1] - 5.0) < 1e-10
+    assert abs(pos[8]) < 1e-10
 
 
 def test_odd_symmetric_unbounded():
@@ -93,25 +137,21 @@ def test_unbounded_input_sigmoid_clamp():
 
 def test_validation_errors():
     """基础参数校验。"""
-    # Ne <= 0
     try:
         LMMapper(Ne=0, L=10, dmin=0.5)
         assert False
     except ValueError:
         pass
-    # 对称 Ne=1
     try:
         LMMapper(Ne=1, L=10, dmin=0.5, is_symmetric=True)
         assert False
     except ValueError:
         pass
-    # dmin * (Ne-1) > L
     try:
         LMMapper(Ne=10, L=4.0, dmin=0.5)
         assert False
     except ValueError:
         pass
-    # opt_vector 长度不匹配
     try:
         mapper = LMMapper(Ne=10, L=5.0, dmin=0.5)
         mapper.synthesize(np.zeros(5))
@@ -120,28 +160,20 @@ def test_validation_errors():
         pass
 
 
-def test_dmax_rejected():
-    """dmax 已废弃。"""
+def test_dmax_and_fixed_aperture_rejected():
+    """dmax + is_fixed_aperture 同时启用应报错。"""
     try:
-        LMMapper(Ne=10, L=5.0, dmin=0.5, dmax=1.0)
+        LMMapper(Ne=10, L=5.0, dmin=0.5, dmax=1.0, is_fixed_aperture=True)
         assert False
-    except NotImplementedError:
+    except ValueError:
         pass
 
 
-def test_fixed_aperture_rejected():
-    """is_fixed_aperture 已废弃。"""
+def test_dmax_and_fixed_symmetric_rejected():
+    """dmax + 对称 + 固定孔径 同时启用应报错。"""
     try:
-        LMMapper(Ne=10, L=5.0, dmin=0.5, is_fixed_aperture=True)
+        LMMapper(Ne=10, L=10, dmin=0.5, dmax=1.0,
+                 is_symmetric=True, is_fixed_aperture=True)
         assert False
-    except NotImplementedError:
-        pass
-
-
-def test_dmax_and_symmetric():
-    """dmax + 对称 → 同样报错。"""
-    try:
-        LMMapper(Ne=10, L=10, dmin=0.5, dmax=1.0, is_symmetric=True)
-        assert False
-    except NotImplementedError:
+    except ValueError:
         pass

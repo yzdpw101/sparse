@@ -41,12 +41,9 @@ class LMMapper:
             is_symmetric: 是否关于原点对称
             is_fixed_aperture: 是否固定孔径（两端阵元钉在 ±L/2）
         """
-        # 已废弃：这两种模式的最后一个阵元无法满足间距要求
-        if dmax is not None:
-            raise NotImplementedError("dmax 已废弃，最后一个阵元无法满足间距要求")
-        if is_fixed_aperture:
-            raise NotImplementedError(
-                "is_fixed_aperture 已废弃，最后一个阵元无法满足间距要求"
+        if dmax is not None and is_fixed_aperture:
+            raise ValueError(
+                "dmax 和 is_fixed_aperture 不能同时启用"
             )
         if Ne <= 0:
             raise ValueError(f"Ne 必须为正整数, 实际 {Ne}")
@@ -54,25 +51,38 @@ class LMMapper:
             raise ValueError(f"L 必须大于 0, 实际 {L}")
         if is_symmetric and Ne <= 1:
             raise ValueError(f"对称阵列 Ne 必须 ≥ 2, 实际 {Ne}")
+        if is_symmetric and is_fixed_aperture and Ne <= 3:
+            raise ValueError(f"对称固定孔径 Ne 必须 ≥ 4, 实际 {Ne}")
+        if not is_symmetric and is_fixed_aperture and Ne <= 2:
+            raise ValueError(f"非对称固定孔径 Ne 必须 ≥ 3, 实际 {Ne}")
         if dmin <= 0:
             raise ValueError(f"dmin 必须为正数, 实际 {dmin}")
+        if dmax is not None and dmax <= dmin:
+            raise ValueError(f"dmax ({dmax}) 必须大于 dmin ({dmin})")
+        if dmax is not None and dmax * (Ne - 1) < L:
+            raise ValueError(f"dmax * (Ne-1) = {dmax * (Ne - 1)} < L = {L}")
         if dmin * (Ne - 1) > L:
             raise ValueError(f"dmin * (Ne-1) = {dmin * (Ne - 1)} > L = {L}")
 
         self._Ne = Ne
         self._L = L
         self._dmin = dmin
+        self._dmax = dmax  # None = 无上限
         self._is_symmetric = is_symmetric
+        self._is_fixed_aperture = is_fixed_aperture
 
         # 预计算半侧参数
         if is_symmetric:
             self._has_center = (Ne % 2 == 1)
             self._halfNe = (Ne + 1) // 2 if self._has_center else Ne // 2
-            self._n_fixed = 1 if self._has_center else 0  # 仅奇数中心固定
+            if self._has_center:
+                self._n_fixed = 1 + (1 if is_fixed_aperture else 0)
+            else:
+                self._n_fixed = 2 if is_fixed_aperture else 0
         else:
             self._has_center = False
             self._halfNe = Ne
-            self._n_fixed = 0
+            self._n_fixed = 2 if is_fixed_aperture else 0
 
     # -- 属性 --
     @property
@@ -88,8 +98,16 @@ class LMMapper:
         return self._dmin
 
     @property
+    def dmax(self) -> float:
+        return self._dmax if self._dmax is not None else np.inf
+
+    @property
     def is_symmetric(self) -> bool:
         return self._is_symmetric
+
+    @property
+    def is_fixed_aperture(self) -> bool:
+        return self._is_fixed_aperture
 
     @property
     def has_center(self) -> bool:
@@ -126,33 +144,59 @@ class LMMapper:
         v = self._sigmoid(opt_vector)
         halfL = self._L / 2.0
 
-        if self._is_symmetric:
-            return self._synthesize_symmetric(v, halfL)
+        if np.isinf(self.dmax):
+            return self._synthesize_no_dmax(v, halfL)
         else:
-            return self._synthesize_asymmetric(v, halfL)
+            return self._synthesize_with_dmax(v, halfL)
 
     # ----------------------------------------------------------------
-    #  对称
+    #  无 dmax 上限
     # ----------------------------------------------------------------
-    def _synthesize_symmetric(self, v: np.ndarray, halfL: float) -> np.ndarray:
+    def _synthesize_no_dmax(self, v: np.ndarray, halfL: float) -> np.ndarray:
         dmin = self._dmin
+
+        if self._is_symmetric:
+            return self._synthesize_symmetric_no_dmax(v, halfL, dmin)
+        else:
+            return self._synthesize_asymmetric_no_dmax(v, halfL, dmin)
+
+    def _synthesize_symmetric_no_dmax(
+        self, v: np.ndarray, halfL: float, dmin: float
+    ) -> np.ndarray:
         halfNe = self._halfNe
         hpos = np.empty(halfNe)
 
         if self._has_center:
             hpos[0] = 0.0
             length_remain = halfL - (halfNe - 1) * dmin
-            for i in range(halfNe - 1):
-                hpos[i + 1] = hpos[i] + dmin + length_remain * v[i]
-                length_remain *= (1.0 - v[i])
         else:
             hpos[0] = dmin / 2.0
             length_remain = halfL - (halfNe - 0.5) * dmin
-            hpos[0] += length_remain * v[0]
-            length_remain *= (1.0 - v[0])
-            for i in range(1, halfNe):
-                hpos[i] = hpos[i - 1] + dmin + length_remain * v[i]
-                length_remain *= (1.0 - v[i])
+
+        if self._is_fixed_aperture:
+            if self._has_center:
+                n_v = halfNe - 2
+                for i in range(n_v):
+                    hpos[i + 1] = hpos[i] + dmin + length_remain * v[i]
+                    length_remain *= (1.0 - v[i])
+                hpos[halfNe - 1] = halfL
+            else:
+                n_v = halfNe - 2
+                for i in range(n_v):
+                    hpos[i + 1] = hpos[i] + dmin + length_remain * v[i]
+                    length_remain *= (1.0 - v[i])
+                hpos[halfNe - 1] = halfL
+        else:
+            if self._has_center:
+                for i in range(halfNe - 1):
+                    hpos[i + 1] = hpos[i] + dmin + length_remain * v[i]
+                    length_remain *= (1.0 - v[i])
+            else:
+                hpos[0] += length_remain * v[0]
+                length_remain *= (1.0 - v[0])
+                for i in range(1, halfNe):
+                    hpos[i] = hpos[i - 1] + dmin + length_remain * v[i]
+                    length_remain *= (1.0 - v[i])
 
         pos = np.empty(self._Ne)
         if self._has_center:
@@ -163,19 +207,80 @@ class LMMapper:
             pos[halfNe:] = hpos
         return pos
 
-    # ----------------------------------------------------------------
-    #  非对称
-    # ----------------------------------------------------------------
-    def _synthesize_asymmetric(self, v: np.ndarray, halfL: float) -> np.ndarray:
-        dmin = self._dmin
+    def _synthesize_asymmetric_no_dmax(
+        self, v: np.ndarray, halfL: float, dmin: float
+    ) -> np.ndarray:
         pos = np.empty(self._Ne)
         pos[0] = -halfL
         length_remain = self._L - (self._Ne - 1) * dmin
 
-        for i in range(self._Ne - 1):
-            pos[i + 1] = pos[i] + dmin + length_remain * v[i]
-            length_remain *= (1.0 - v[i])
-        # 剩余孔径用于整体偏移
+        if self._is_fixed_aperture:
+            n_v = self._Ne - 2
+            for i in range(n_v):
+                pos[i + 1] = pos[i] + dmin + length_remain * v[i]
+                length_remain *= (1.0 - v[i])
+            pos[self._Ne - 1] = halfL
+        else:
+            n_v = self._Ne - 1
+            for i in range(n_v):
+                pos[i + 1] = pos[i] + dmin + length_remain * v[i]
+                length_remain *= (1.0 - v[i])
+            rl = self._L - (pos[self._Ne - 1] - pos[0])
+            pos += rl * v[self._Ne - 1]
+
+        return pos
+
+    # ----------------------------------------------------------------
+    #  有 dmax 上限
+    # ----------------------------------------------------------------
+    def _synthesize_with_dmax(
+        self, v: np.ndarray, halfL: float
+    ) -> np.ndarray:
+        dmin = self._dmin
+        delta = self._dmax - dmin
+
+        if self._is_symmetric:
+            return self._synthesize_symmetric_with_dmax(v, halfL, dmin, delta)
+        else:
+            return self._synthesize_asymmetric_with_dmax(v, halfL, dmin, delta)
+
+    def _synthesize_symmetric_with_dmax(
+        self, v: np.ndarray, halfL: float, dmin: float, delta: float
+    ) -> np.ndarray:
+        halfNe = self._halfNe
+        hpos = np.empty(halfNe)
+
+        if self._has_center:
+            hpos[0] = 0.0
+        else:
+            hpos[0] = dmin / 2.0
+
+        if self._has_center:
+            for i in range(halfNe - 1):
+                hpos[i + 1] = hpos[i] + dmin + delta * v[i]
+        else:
+            hpos[0] += delta * v[0] / 2.0
+            for i in range(1, halfNe):
+                hpos[i] = hpos[i - 1] + dmin + delta * v[i]
+
+        pos = np.empty(self._Ne)
+        if self._has_center:
+            pos[:halfNe - 1] = -hpos[1:][::-1]
+            pos[halfNe - 1:] = hpos
+        else:
+            pos[:halfNe] = -hpos[::-1]
+            pos[halfNe:] = hpos
+        return pos
+
+    def _synthesize_asymmetric_with_dmax(
+        self, v: np.ndarray, halfL: float, dmin: float, delta: float
+    ) -> np.ndarray:
+        pos = np.empty(self._Ne)
+        pos[0] = -halfL
+
+        n_v = self._Ne - 1
+        for i in range(n_v):
+            pos[i + 1] = pos[i] + dmin + delta * v[i]
         rl = self._L - (pos[self._Ne - 1] - pos[0])
         pos += rl * v[self._Ne - 1]
 
