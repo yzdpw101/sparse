@@ -44,18 +44,34 @@ pat = Pattern(
     theta0s_deg=SCAN_ANGLE,
 )
 
-if SYMMETRIC:
-    # 对称模式：只传半边位置（x > 0）
-    half_positions = np.arange(SPACING, (N_ELEMENTS // 2) * SPACING + SPACING / 2, SPACING)
-    print(f"半边阵元位置: {half_positions}")
-    print(f"孔径: {2 * half_positions[-1]:.4f} λ（对称）")
-    af = pat.af(half_positions, amplitudes=AMPLITUDES)
+if N_ELEMENTS % 2 == 1:
+    # 奇数：有中心阵元 x=0
+    half_positions = np.arange(SPACING, ((N_ELEMENTS - 1) // 2) * SPACING + SPACING / 2, SPACING)
+    has_center = True
 else:
-    positions = np.linspace(-(N_ELEMENTS - 1) * SPACING / 2,
-                            (N_ELEMENTS - 1) * SPACING / 2, N_ELEMENTS)
-    print(f"阵元位置: {positions}")
-    print(f"孔径: {positions[-1] - positions[0]:.4f} λ")
-    af = pat.af(positions, amplitudes=AMPLITUDES)
+    # 偶数：无中心，位置对称于原点 ±d/2, ±3d/2, ...
+    half_positions = np.arange(SPACING / 2, (N_ELEMENTS / 2) * SPACING, SPACING)
+    has_center = False
+
+# 非对称参考位置（用于绘图标注和对比）
+positions_full = np.linspace(-(N_ELEMENTS - 1) * SPACING / 2,
+                             (N_ELEMENTS - 1) * SPACING / 2, N_ELEMENTS)
+
+if SYMMETRIC:
+    print(f"半边阵元位置: {half_positions}")
+    print(f"全阵孔径: {2 * half_positions[-1]:.4f} λ（对称）")
+    af = pat.linear_af_symmetric(half_positions, has_center=has_center,
+                                 amplitudes=AMPLITUDES)
+    # 全阵坐标用于绘图
+    if has_center:
+        all_positions = np.concatenate([-half_positions[::-1], [0.0], half_positions])
+    else:
+        all_positions = np.concatenate([-half_positions[::-1], half_positions])
+else:
+    print(f"阵元位置: {positions_full}")
+    print(f"孔径: {positions_full[-1] - positions_full[0]:.4f} λ")
+    af = pat.linear_af(positions_full, amplitudes=AMPLITUDES)
+    all_positions = positions_full
 af_db = Pattern.to_dB(af)
 
 psll_val, psll_angle = get_psll(af_db, pat.theta_deg)
@@ -73,9 +89,9 @@ if len(values) > 8:
 #  绘图
 # ═══════════════════════════════════════════════════════════
 
-fig = plt.figure(figsize=(14, 5))
+fig = plt.figure(figsize=(18, 5))
 
-ax1 = fig.add_subplot(1, 2, 1)
+ax1 = fig.add_subplot(1, 3, 1)
 title = f'{N_ELEMENTS} 元均匀直线阵 (d={SPACING}λ, 扫描={SCAN_ANGLE}°'
 title += ', 对称)' if SYMMETRIC else ')'
 plot_pattern_1d(ax1, pat.theta_deg, af_db,
@@ -83,8 +99,24 @@ plot_pattern_1d(ax1, pat.theta_deg, af_db,
                 psll=(psll_val, psll_angle),
                 title=title)
 
-ax2 = fig.add_subplot(1, 2, 2, projection='polar')
+ax2 = fig.add_subplot(1, 3, 2, projection='polar')
 plot_pattern_polar(ax2, pat.theta_deg, af_db)
+
+ax3 = fig.add_subplot(1, 3, 3)
+ax3.scatter(all_positions, np.zeros_like(all_positions),
+            c='blue', s=100, marker='^', zorder=5,
+            label=f'{len(all_positions)} 阵元')
+ax3.axhline(y=0, color='gray', alpha=0.3)
+ax3.set_xlabel('x (λ)')
+ax3.set_ylabel('y (λ)')
+ax3.set_title('阵元布局')
+ax3.set_ylim(-0.5, 0.5)
+ax3.grid(True, alpha=0.3)
+ax3.legend()
+# 标注孔径
+x_min, x_max = np.min(all_positions), np.max(all_positions)
+margin = 0.3
+ax3.set_xlim(x_min - margin, x_max + margin)
 
 plt.tight_layout()
 plt.show()
