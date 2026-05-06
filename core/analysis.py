@@ -6,6 +6,10 @@
 支持：
   - 1D 方向图 (Nθ,)：线阵或平面阵单 φ 切片
   - 2D 方向图 (Nθ, Nφ)：平面阵全 φ 分析
+
+mainlobe_region 约定：
+  - 1D 模式: (θ_start, θ_end) — 排除该 θ 区间
+  - 2D 模式: ((θ_start, θ_end), (φ_start, φ_end)) — 排除矩形区域
 """
 
 from typing import Optional, Union
@@ -51,14 +55,26 @@ def _find_peaks(data: np.ndarray, consider_edges: bool = True
 
 
 def _find_peaks_1d(pattern: np.ndarray,
-                   theta: Optional[np.ndarray] = None
+                   theta: Optional[np.ndarray] = None,
+                   mainlobe_region: Optional[tuple[float, float]] = None
                    ) -> tuple[np.ndarray, np.ndarray]:
-    """1D 峰值搜索：找所有峰值，返回 (values, coords)。"""
+    """1D 峰值搜索：找所有峰值，可选排除主瓣区域。返回 (values, coords)。"""
     pattern = np.asarray(pattern)
     indices, values = _find_peaks(pattern)
+
     if theta is not None:
-        return values, np.asarray(theta)[indices]
-    return values, indices
+        coords = np.asarray(theta, dtype=float)[indices]
+    else:
+        coords = indices.copy()  # 保持整数类型
+
+    # 排除主瓣区域
+    if mainlobe_region is not None and len(values) > 0:
+        t_start, t_end = mainlobe_region
+        keep = (coords < t_start) | (coords > t_end)
+        values = values[keep]
+        coords = coords[keep]
+
+    return values, coords
 
 
 def _get_psll_1d(pattern: np.ndarray,
@@ -66,13 +82,7 @@ def _get_psll_1d(pattern: np.ndarray,
                  mainlobe_region: Optional[tuple[float, float]] = None
                  ) -> tuple[float, Union[float, int]]:
     """1D PSLL 计算：返回 (psll_value, psll_coord)。"""
-    values, coords = _find_peaks_1d(pattern, theta)
-
-    if mainlobe_region is not None:
-        t_start, t_end = mainlobe_region
-        mask = (coords < t_start) | (coords > t_end)
-        values = values[mask]
-        coords = coords[mask]
+    values, coords = _find_peaks_1d(pattern, theta, mainlobe_region)
 
     if len(values) < 2:
         return -np.inf, np.nan
@@ -86,9 +96,24 @@ def _get_psll_1d(pattern: np.ndarray,
 #  2D 峰值搜索（平面阵）
 # ============================================================
 
+def _parse_mainlobe_region_2d(mainlobe_region):
+    """解析 2D mainlobe_region，返回 (θ_bounds, φ_bounds)。
+
+    1D 风格 (θ_s, θ_e) → θ_bounds=(θ_s, θ_e), φ_bounds=None
+    2D 风格 ((θ_s, θ_e), (φ_s, φ_e)) → θ_bounds, φ_bounds
+    """
+    if mainlobe_region is None:
+        return None, None
+    a, b = mainlobe_region
+    if isinstance(a, (int, float, np.floating)):
+        return mainlobe_region, None
+    return a, b
+
+
 def _find_peaks_2d(pattern: np.ndarray,
                    theta: Optional[np.ndarray],
-                   phi: Optional[np.ndarray]
+                   phi: Optional[np.ndarray],
+                   mainlobe_region=None
                    ) -> tuple[np.ndarray, np.ndarray]:
     """2D 峰值搜索：遍历所有 φ 平面，合并全部峰值并全局排序。
 
@@ -96,6 +121,7 @@ def _find_peaks_2d(pattern: np.ndarray,
         values: (N_total,)、coords: (N_total, 2) — 列 [θ, φ]
     """
     _, N_phi = pattern.shape
+    theta_bounds, phi_bounds = _parse_mainlobe_region_2d(mainlobe_region)
     all_values, all_coords = [], []
 
     for j in range(N_phi):
@@ -116,6 +142,20 @@ def _find_peaks_2d(pattern: np.ndarray,
 
     values = np.concatenate(all_values)
     coords = np.concatenate(all_coords, axis=0)
+
+    # 排除 2D 主瓣区域
+    if theta_bounds is not None and len(values) > 0:
+        t0, t1 = theta_bounds
+        if phi_bounds is not None:
+            f0, f1 = phi_bounds
+            keep = ~((coords[:, 0] >= t0) & (coords[:, 0] <= t1) &
+                     (coords[:, 1] >= f0) & (coords[:, 1] <= f1))
+        else:
+            # 1D 风格：仅 θ 过滤，对所有 φ 面有效
+            keep = (coords[:, 0] < t0) | (coords[:, 0] > t1)
+        values = values[keep]
+        coords = coords[keep]
+
     order = np.argsort(values)[::-1]
     return values[order], coords[order]
 
@@ -123,15 +163,27 @@ def _find_peaks_2d(pattern: np.ndarray,
 def _get_psll_2d(pattern: np.ndarray,
                  theta: Optional[np.ndarray],
                  phi: Optional[np.ndarray],
-                 mainlobe_region: Optional[tuple[float, float]]
+                 mainlobe_region=None
                  ) -> tuple[np.ndarray, np.ndarray]:
     """2D PSLL：每 φ 平面一个 PSLL，返回 (pslls: (Nφ,), coords: (Nφ, 2))。"""
     _, N_phi = pattern.shape
+    theta_bounds, phi_bounds = _parse_mainlobe_region_2d(mainlobe_region)
+
     psll_values = np.full(N_phi, -np.inf)
     psll_coords = np.full((N_phi, 2), np.nan)
 
     for j in range(N_phi):
-        val, coord = _get_psll_1d(pattern[:, j], theta, mainlobe_region)
+        # 该 φ 平面是否需要应用 θ 过滤
+        if theta_bounds is not None and phi_bounds is not None:
+            phi_j = phi[j] if phi is not None else j
+            if phi_bounds[0] <= phi_j <= phi_bounds[1]:
+                plane_mr = theta_bounds
+            else:
+                plane_mr = None
+        else:
+            plane_mr = theta_bounds
+
+        val, coord = _get_psll_1d(pattern[:, j], theta, plane_mr)
         psll_values[j] = val
 
         valid = not np.isinf(val)
@@ -154,30 +206,35 @@ def _get_psll_2d(pattern: np.ndarray,
 
 def find_peaks(pattern: np.ndarray,
                theta: Optional[np.ndarray] = None,
-               phi: Optional[np.ndarray] = None
+               phi: Optional[np.ndarray] = None,
+               mainlobe_region=None
                ) -> tuple[np.ndarray, np.ndarray]:
     """查找方向图峰值，按值降序返回。
 
     1D 输入 (Nθ,)：
         线阵或单 φ 切片，返回 (values, coords)，coords 为角度或索引。
+        mainlobe_region = (θ_start, θ_end) 排除该区间。
 
     2D 输入 (Nθ, Nφ)：
         平面阵方向图，遍历所有 φ 面合并峰值。
         coords 为 (N_total, 2) 数组，列为 [θ_coord, φ_coord]。
+        mainlobe_region = ((θ_s, θ_e), (φ_s, φ_e)) 排除矩形区域，
+        或仅 (θ_s, θ_e) 对所有 φ 面生效。
 
     Args:
         pattern: 1D 或 2D 方向图数组
         theta: θ 角度网格（度），shape (Nθ,)；不传则返回索引
         phi: φ 角度网格（度），shape (Nφ,)；pattern 为 2D 时可用
+        mainlobe_region: 主瓣排除区域，1D=(θ_s,θ_e), 2D=((θ_s,θ_e),(φ_s,φ_e))
 
     Returns:
         (values, coords)
     """
     pattern = np.asarray(pattern)
     if pattern.ndim == 1:
-        return _find_peaks_1d(pattern, theta)
+        return _find_peaks_1d(pattern, theta, mainlobe_region)
     elif pattern.ndim == 2:
-        return _find_peaks_2d(pattern, theta, phi)
+        return _find_peaks_2d(pattern, theta, phi, mainlobe_region)
     else:
         raise ValueError(f"pattern 必须是 1D 或 2D 数组, 实际 ndim={pattern.ndim}")
 
@@ -185,24 +242,24 @@ def find_peaks(pattern: np.ndarray,
 def get_psll(pattern: np.ndarray,
              theta: Optional[np.ndarray] = None,
              phi: Optional[np.ndarray] = None,
-             mainlobe_region: Optional[tuple[float, float]] = None
+             mainlobe_region=None
              ) -> tuple:
     """计算最高副瓣电平（PSLL）。
 
     1D 输入 (Nθ,)：
         返回 (psll_value, psll_coord)，coord 为角度（传 theta）或索引。
+        mainlobe_region = (θ_start, θ_end) 排除主瓣区域。
 
     2D 输入 (Nθ, Nφ)：
         遍历所有 φ 平面，返回 (pslls: (Nφ,), coords: (Nφ, 2))。
         coords 列为 [θ_coord, φ_coord]，无副瓣的平面为 [nan, nan]。
+        mainlobe_region = ((θ_start, θ_end), (φ_start, φ_end)) 排除矩形区域。
 
     Args:
         pattern: 1D 或 2D 方向图数组（推荐归一化 dB）
         theta: θ 角度网格（度），shape (Nθ,)
         phi: φ 角度网格（度），shape (Nφ,)；pattern 为 2D 时可用
-        mainlobe_region: (θ_start, θ_end) 主瓣角度范围（度）。
-                         传入此参数时 theta 不能为 None。
-                         2D 时对每个 φ 平面独立应用。
+        mainlobe_region: 1D=(θ_s,θ_e), 2D=((θ_s,θ_e),(φ_s,φ_e))
 
     Returns:
         1D: (psll: float, coord: float|int)
@@ -227,7 +284,7 @@ def get_psll(pattern: np.ndarray,
 def get_overall_psll(pattern: np.ndarray,
                      theta: Optional[np.ndarray] = None,
                      phi: Optional[np.ndarray] = None,
-                     mainlobe_region: Optional[tuple[float, float]] = None
+                     mainlobe_region=None
                      ) -> tuple[float, np.ndarray]:
     """全平面最大 PSLL —— 公式 (9) 的 f(X,Y) = max |AF(θ,φ)/FFmax|。
 
@@ -238,7 +295,7 @@ def get_overall_psll(pattern: np.ndarray,
         pattern: 1D 或 2D 方向图数组
         theta: θ 角度网格（度）
         phi: φ 角度网格（度）
-        mainlobe_region: 主瓣排除区域
+        mainlobe_region: 主瓣排除区域，格式同 get_psll。
 
     Returns:
         (psll: float, coord: (2,) ndarray) — 全局最差副瓣及其 [θ, φ] 位置。

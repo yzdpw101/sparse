@@ -259,3 +259,141 @@ def test_get_overall_psll_module_level():
     af_db = Pattern.to_dB(pat.linear_af(np.linspace(-2.25, 2.25, 10)))
     psll, coord = get_overall_psll(af_db, pat.theta_deg)
     assert isinstance(psll, float)
+
+
+# ============================================================
+#  mainlobe_region 测试
+# ============================================================
+
+def test_find_peaks_1d_mainlobe_region():
+    """1D find_peaks 排除主瓣区域后主瓣应被移除。"""
+    pat = Pattern(theta_deg_step=1.0)
+    af_db = Pattern.to_dB(pat.linear_af(np.linspace(-2.25, 2.25, 10)))
+
+    # 不排除 → 有主瓣 0 dB
+    v_all, c_all = find_peaks(af_db, pat.theta_deg)
+    assert abs(v_all[0]) < 1e-6, "第一峰应为主瓣 ~0 dB"
+
+    # 排除法向 ±15°
+    v_mr, c_mr = find_peaks(af_db, pat.theta_deg, mainlobe_region=(-15, 15))
+    assert v_mr[0] < 0, "排除主瓣后最高峰应为副瓣"
+    # 所有剩余峰均不在排除区域内
+    in_region = (c_mr >= -15) & (c_mr <= 15)
+    assert not in_region.any(), "排除区域内不应有残留峰值"
+
+
+def test_get_psll_1d_mainlobe_region_effect():
+    """1D 排除主瓣后 PSLL 应不同（或不排除时找到的是主瓣附近小峰）。"""
+    pat = Pattern(theta_deg_step=0.5)
+    af_db = Pattern.to_dB(pat.linear_af(np.linspace(-2.25, 2.25, 10)))
+
+    # 不排除主瓣 → 主瓣是最高峰，PSLL 是第一副瓣
+    psll_no_mr, _ = get_psll(af_db, pat.theta_deg)
+    # 排除法向 ±15° → PSLL 可能更大（如果有其他高副瓣）或更小
+    psll_mr, _ = get_psll(af_db, pat.theta_deg, mainlobe_region=(-15, 15))
+
+    assert abs(psll_no_mr - (-13.26)) < 0.5, "均匀线阵 PSLL 应在 -13.26 dB 附近"
+    # 排除主瓣后 PSLL 应接近（均匀线阵第一副瓣在 ~±15° 以外）
+    assert psll_mr < 0
+
+
+def test_get_psll_2d_mainlobe_region_rectangular():
+    """2D 矩形 mainlobe_region 排除主瓣区域。"""
+    pat = Pattern(
+        array_type="planar",
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=10.0,
+    )
+    # 4 元方阵
+    x = np.array([0.0, 0.5, -0.5, 0.0])
+    y = np.array([0.0, 0.0, 0.0, 0.5])
+    af_db = Pattern.to_dB(pat.planar_af(x, y))
+
+    # 2D 矩形主瓣区域
+    mr = ((-10, 10), (-30, 30))
+    pslls, coords = get_psll(af_db, pat.theta_deg, pat.phi_deg, mainlobe_region=mr)
+
+    assert pslls.shape == (len(pat.phi_deg),)
+    assert coords.shape == (len(pat.phi_deg), 2)
+
+    # φ=0° 平面（在主瓣 φ 范围内）→ θ 主瓣区域被排除
+    j_phi0 = np.where(np.abs(pat.phi_deg) < 0.1)[0][0]
+    val_phi0, coord_phi0 = get_psll(
+        af_db[:, j_phi0], pat.theta_deg, mainlobe_region=(-10, 10)
+    )
+    both_inf = np.isinf(pslls[j_phi0]) and np.isinf(val_phi0)
+    assert both_inf or abs(pslls[j_phi0] - val_phi0) < 1e-10, \
+        f"φ=0° 平面 PSLL 应与手动 1D(mr=(-10,10)) 一致"
+
+    # φ=90° 平面（在主瓣 φ 范围外）→ θ 主瓣区域不应被排除
+    j_phi90 = np.argmin(np.abs(pat.phi_deg - 90))
+    val_90_nomr, _ = get_psll(af_db[:, j_phi90], pat.theta_deg)
+    both_inf90 = np.isinf(pslls[j_phi90]) and np.isinf(val_90_nomr)
+    assert both_inf90 or abs(pslls[j_phi90] - val_90_nomr) < 1e-10, \
+        f"φ=90° 平面 PSLL 应与手动 1D(无 mr) 一致"
+
+
+def test_find_peaks_2d_mainlobe_region():
+    """2D find_peaks 排除矩形主瓣区域。"""
+    pat = Pattern(
+        array_type="planar",
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=10.0,
+    )
+    # 10 元沿 x 轴均匀线阵（主瓣在 φ=0° 平面最窄）
+    x = np.linspace(-2.25, 2.25, 10)
+    y = np.zeros(10)
+    af_db = Pattern.to_dB(pat.planar_af(x, y))
+
+    # 不排除
+    v_all, c_all = find_peaks(af_db, pat.theta_deg, pat.phi_deg)
+    n_all = len(v_all)
+
+    # 排除法向 ±8° 且 φ∈[-30°,30°] 的矩形区域（覆盖主瓣）
+    mr = ((-8, 8), (-30, 30))
+    v_mr, c_mr = find_peaks(af_db, pat.theta_deg, pat.phi_deg, mainlobe_region=mr)
+
+    assert len(v_mr) < n_all, "排除主瓣后峰值数应减少"
+    # 确认主瓣区域内的峰值均被排除
+    in_rect = (
+        (c_mr[:, 0] >= -8) & (c_mr[:, 0] <= 8) &
+        (c_mr[:, 1] >= -30) & (c_mr[:, 1] <= 30)
+    )
+    assert not in_rect.any(), "矩形区域内不应有残留峰值"
+    # 排除前的主瓣 0 dB 峰值 (θ≈0,φ≈0) 已被移除
+    mainlobe_mask = (c_all[:, 0] > -8) & (c_all[:, 0] < 8) & \
+                    (c_all[:, 1] > -30) & (c_all[:, 1] < 30)
+    assert mainlobe_mask.any(), "排除前应有主瓣"
+    assert abs(v_all[mainlobe_mask][0]) < 1e-6, "排除前最高峰应为主瓣 ~0 dB"
+
+
+def test_get_overall_psll_2d_mainlobe_region():
+    """2D get_overall_psll + 矩形主瓣排除。"""
+    pat = Pattern(
+        array_type="planar",
+        theta_deg_step=2.0,
+        phi_deg_start=-90, phi_deg_end=90, phi_deg_step=10.0,
+    )
+    # 4 元方阵
+    x = np.array([0.0, 0.5, -0.5, 0.0])
+    y = np.array([0.0, 0.0, 0.0, 0.5])
+    af_db = Pattern.to_dB(pat.planar_af(x, y))
+
+    # 不用主瓣排除
+    psll1, coord1 = get_overall_psll(af_db, pat.theta_deg, pat.phi_deg)
+
+    # 用法向矩形主瓣排除
+    mr = ((-10, 10), (-30, 30))
+    psll2, coord2 = get_overall_psll(af_db, pat.theta_deg, pat.phi_deg,
+                                      mainlobe_region=mr)
+
+    # 排除主瓣后全局 PSLL 不应比排除前更低
+    valid1 = not np.isinf(psll1)
+    valid2 = not np.isinf(psll2)
+    if valid1 and valid2:
+        assert psll2 >= psll1 - 0.1, \
+            f"排除主瓣后 PSLL 不应更低: 前={psll1:.2f}, 后={psll2:.2f}"
+    # coord 应在排除区域外
+    if valid2:
+        in_rect = (-10 <= coord2[0] <= 10) and (-30 <= coord2[1] <= 30)
+        assert not in_rect, f"全局 PSLL 坐标 {coord2} 不应在排除区域内"
