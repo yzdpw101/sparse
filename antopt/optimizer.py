@@ -61,11 +61,11 @@ class SparseArrayProblem(Problem):
         self.n_amp = mapper.Ne if optimize_amplitude else 0
         n_vars = self.n_pos + self.n_phase + self.n_amp
 
-        # 边界：位置无界，相位 [0, 2π]，幅度 [amp_lower, amp_upper]
+        # 边界：位置用大范围（sigmoid 钳位在 ±20），相位 [0, 2π]，幅度 [lb, ub]
         xl = np.empty(n_vars)
         xu = np.empty(n_vars)
-        xl[:self.n_pos] = -np.inf
-        xu[:self.n_pos] = np.inf
+        xl[:self.n_pos] = -50.0
+        xu[:self.n_pos] = 50.0
         xl[self.n_pos:self.n_pos + self.n_phase] = 0.0
         xu[self.n_pos:self.n_pos + self.n_phase] = TWO_PI
         xl[-self.n_amp or n_vars:] = amplitude_bounds[0]
