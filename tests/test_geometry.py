@@ -1,7 +1,7 @@
 """测试阵列几何模块。"""
 
 import numpy as np
-from core.geometry import Element, LinearArray, PlanarArray, UniformLinearArray
+from antopt.geometry import Element, LinearArray, PlanarArray, UniformLinearArray
 
 
 def test_element_defaults():

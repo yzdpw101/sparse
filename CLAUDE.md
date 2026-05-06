@@ -9,11 +9,12 @@ Python 实现的稀布/稀疏阵列天线优化库，方向图乘积定理（阵
 
 ```
 sparse/
-├── core/                  # 核心计算代码
+├── antopt/                  # 核心计算代码
 │   ├── __init__.py
 │   ├── pattern.py         # 方向图计算器（AF 计算 + 归一化）
 │   ├── geometry.py        # 阵列几何定义（Element, LinearArray, PlanarArray）
-│   └── element_pattern.py # 单元方向图模型
+│   ├── element_pattern.py # 单元方向图模型
+│   └── analysis.py        # 方向图分析（PSLL, 峰值搜索）
 ├── tests/                 # pytest 测试
 │   ├── conftest.py
 │   ├── test_geometry.py
@@ -45,8 +46,8 @@ E:\Documents\南理工\阵列天线稀疏\Sparse\
 
 ## 当前状态
 
-- [x] `core/geometry.py` — Element、ArrayGeometry、LinearArray、PlanarArray、UniformLinearArray
-- [x] `core/pattern.py` — 方向图计算器
+- [x] `antopt/geometry.py` — Element、ArrayGeometry、LinearArray、PlanarArray、UniformLinearArray
+- [x] `antopt/pattern.py` — 方向图计算器
   - [x] `__init__()` 预计算角度网格和 EM 常量
   - [x] `linear_af()` — 线阵非对称单频单角度
   - [x] `linear_af_symmetric()` — 对称阵列
@@ -54,7 +55,7 @@ E:\Documents\南理工\阵列天线稀疏\Sparse\
   - [x] `planar_af()` — 平面阵
   - [x] `planar_af_symmetric()` — 平面阵四象限对称
   - [x] `normalize()` — 归一化 dB 方向图
-- [x] `core/element_pattern.py` — 各向同性、cosine-q、贴片、HFSS 导入
+- [x] `antopt/element_pattern.py` — 各向同性、cosine-q、贴片、HFSS 导入
 - [x] 基础测试通过 (12 tests)
 - [ ] 后续：完善 Pattern 其他方法、方向图分析 utility、可视化
 

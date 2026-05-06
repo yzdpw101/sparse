@@ -7,7 +7,7 @@ import pytest
 @pytest.fixture
 def uniform_linear_array_10():
     """10 元均匀直线阵，半波长间距。"""
-    from core.geometry import UniformLinearArray
+    from antopt.geometry import UniformLinearArray
     return UniformLinearArray(num_elements=10, spacing=0.5, frequency=10e9)
 
 

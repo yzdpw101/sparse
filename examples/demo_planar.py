@@ -11,8 +11,8 @@ import matplotlib
 matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
 import matplotlib.pyplot as plt
-from core.pattern import Pattern
-from core.analysis import get_psll, find_peaks, get_overall_psll
+from antopt.pattern import Pattern
+from antopt.analysis import get_psll, find_peaks, get_overall_psll
 from visualization import plot_pattern_1d, plot_pattern_2d, plot_pattern_3d
 
 # ═══════════════════════════════════════════════════════════

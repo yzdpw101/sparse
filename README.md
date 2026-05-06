@@ -34,7 +34,7 @@ print(f"HPBW: {p.get_hpbw():.2f} deg")
 
 ```
 sparsearray/
-├── core/           # 核心计算 (几何、阵因子、方向图分析)
+├── antopt/         # 核心计算 (几何、阵因子、方向图分析)
 ├── optimization/   # 优化问题定义 (约束、目标函数)
 ├── optimizers/     # 优化算法 (GA, PSO, DE, CMA-ES)
 ├── visualization/  # 可视化 (阵列几何、方向图、收敛曲线)

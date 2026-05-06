@@ -1,7 +1,7 @@
 """测试 Pattern 方向图计算器。"""
 
 import numpy as np
-from core.pattern import Pattern
+from antopt.pattern import Pattern
 
 
 def test_linear_af_shape():
@@ -375,7 +375,7 @@ def test_linear_vs_planar_phi0():
 
 def test_linear_vs_planar_psll():
     """线阵和平面阵(φ=0°)的 PSLL 应一致。"""
-    from core.analysis import get_psll
+    from antopt.analysis import get_psll
 
     positions = np.linspace(-2.25, 2.25, 10)
 

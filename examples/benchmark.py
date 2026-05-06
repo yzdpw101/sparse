@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import time
 import numpy as np
-from core.pattern import Pattern
+from antopt.pattern import Pattern
 
 # ═══════════════════════════════════════════════════════════
 #  固定参数

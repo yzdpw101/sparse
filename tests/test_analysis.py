@@ -1,8 +1,8 @@
 """测试方向图分析函数。"""
 
 import numpy as np
-from core.pattern import Pattern
-from core.analysis import get_psll, find_peaks, get_overall_psll
+from antopt.pattern import Pattern
+from antopt.analysis import get_psll, find_peaks, get_overall_psll
 
 
 def test_get_psll_broadside():
@@ -27,7 +27,7 @@ def test_get_psll_single_element():
 
 def test_get_psll_module_level():
     """验证模块级导入正常。"""
-    from core import get_psll
+    from antopt import get_psll
     pat = Pattern(theta_deg_step=1.0)
     af_db = Pattern.to_dB(pat.linear_af(np.linspace(-2.25, 2.25, 10)))
     psll_val, psll_angle = get_psll(af_db, pat.theta_deg)
@@ -254,7 +254,7 @@ def test_get_overall_psll_1d():
 
 def test_get_overall_psll_module_level():
     """验证模块级导入 get_overall_psll。"""
-    from core import get_overall_psll
+    from antopt import get_overall_psll
     pat = Pattern(theta_deg_step=1.0)
     af_db = Pattern.to_dB(pat.linear_af(np.linspace(-2.25, 2.25, 10)))
     psll, coord = get_overall_psll(af_db, pat.theta_deg)
