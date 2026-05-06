@@ -3,7 +3,7 @@
 from .pattern import Pattern
 from .geometry import Element, LinearArray, PlanarArray, UniformLinearArray
 from .element_pattern import ElementPattern
-from .analysis import get_psll, find_peaks
+from .analysis import get_psll, find_peaks, get_overall_psll
 
 __all__ = [
     "Pattern",
@@ -14,4 +14,5 @@ __all__ = [
     "ElementPattern",
     "get_psll",
     "find_peaks",
+    "get_overall_psll",
 ]
