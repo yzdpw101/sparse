@@ -122,7 +122,7 @@ def test_synthesize_deterministic():
     """相同输入 → 相同输出。"""
     mapper = LMMapper(Ne=20, L=10.0, dmin=0.5)
     rng = np.random.default_rng(42)
-    opt = rng.uniform(0, 1, mapper.n_vars)
+    opt = rng.normal(0, 2, mapper.n_vars)  # 无界变量
     pos1 = mapper.synthesize(opt)
     pos2 = mapper.synthesize(opt)
     assert np.allclose(pos1, pos2)
@@ -133,8 +133,21 @@ def test_positions_within_aperture():
     mapper = LMMapper(Ne=15, L=10.0, dmin=0.5)
     rng = np.random.default_rng(123)
     for _ in range(20):
-        opt = rng.uniform(0, 1, mapper.n_vars)
+        opt = rng.normal(0, 3, mapper.n_vars)  # 无界变量
         pos = mapper.synthesize(opt)
         assert np.all(pos >= -5.0 - 1e-10)
         assert np.all(pos <= 5.0 + 1e-10)
         assert np.all(np.diff(pos) >= 0.5 - 1e-10)
+
+
+def test_unbounded_input_sigmoid_clamp():
+    """极端大/小值 → sigmoid 钳位到 ~0 或 ~1, 不溢出。"""
+    mapper = LMMapper(Ne=10, L=5.0, dmin=0.5)
+    # 极端正值 → v ≈ 1 (密集排列)
+    pos_large = mapper.synthesize(np.full(mapper.n_vars, 100.0))
+    # 极端负值 → v ≈ 0 (均匀排列)
+    pos_small = mapper.synthesize(np.full(mapper.n_vars, -100.0))
+    assert np.all(np.diff(pos_large) >= 0.5 - 1e-10)
+    assert np.all(np.diff(pos_small) >= 0.5 - 1e-10)
+    # 极端大输入产生更分散的排列（v→1 分配更多剩余长度）
+    assert np.ptp(pos_large) > np.ptp(pos_small) - 0.1

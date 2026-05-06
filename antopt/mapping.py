@@ -1,4 +1,4 @@
-"""线性映射器 (LM)：将 [0,1] 优化变量映射为满足间距/孔径约束的线阵位置。
+"""线性映射器 (LM)：将无界优化变量映射为满足间距/孔径约束的线阵位置。
 
 对应 C++ MatrixMapping::LM。
 """
@@ -6,11 +6,15 @@
 from typing import Optional
 import numpy as np
 
+# sigmoid 钳位阈值：|x| > CLIP 时直接取 0 或 1，避免 exp 溢出
+_SIGMOID_CLIP = 20.0
+
 
 class LMMapper:
     """线性映射器。
 
-    将 [0, 1]^D 空间中的优化变量映射为实际阵元坐标（以波长 λ₀ 为单位），
+    接受无界实数变量 x ∈ ℝ^D，通过 sigmoid 映射为 (0,1) 比例，
+    再分配剩余长度得到实际阵元坐标（以波长 λ₀ 为单位）。
     保证 dmin ≤ 间距 ≤ dmax 且位于孔径 [-L/2, L/2] 内。
 
     变量维度 D 由阵列类型决定：
@@ -96,14 +100,16 @@ class LMMapper:
     # -- 核心映射 --
     @staticmethod
     def _sigmoid(x: np.ndarray) -> np.ndarray:
-        """sigmoid: [0,1] → (0.5, ~0.731)。"""
-        return 1.0 / (1.0 + np.exp(-x))
+        """sigmoid: ℝ → (0, 1), |x| > CLIP 时钳位到 0 或 1。"""
+        # 钳位避免 exp 溢出
+        x_clipped = np.clip(x, -_SIGMOID_CLIP, _SIGMOID_CLIP)
+        return 1.0 / (1.0 + np.exp(-x_clipped))
 
     def synthesize(self, opt_vector: np.ndarray) -> np.ndarray:
-        """将优化变量映射为阵元位置。
+        """将无界优化变量映射为阵元位置。
 
         Args:
-            opt_vector: 优化变量, shape (n_vars,), 各分量 ∈ [0, 1]
+            opt_vector: 优化变量, shape (n_vars,), 任意实数值
 
         Returns:
             阵元位置数组, shape (Ne,), 已排序, 以 λ₀ 为单位
@@ -120,7 +126,7 @@ class LMMapper:
         if np.isinf(self.dmax):
             return self._synthesize_no_dmax(v, halfL)
         else:
-            return self._synthesize_with_dmax(v, opt_vector, halfL)
+            return self._synthesize_with_dmax(v, halfL)
 
     # ----------------------------------------------------------------
     #  无 dmax 上限
@@ -179,7 +185,7 @@ class LMMapper:
     #  有 dmax 上限
     # ----------------------------------------------------------------
     def _synthesize_with_dmax(
-        self, v: np.ndarray, opt_vector: np.ndarray, halfL: float
+        self, v: np.ndarray, halfL: float
     ) -> np.ndarray:
         dmin = self._dmin
         delta = self._dmax - dmin  # dmax 已保证非 None
@@ -194,7 +200,7 @@ class LMMapper:
                     hpos[i + 1] = hpos[i] + dmin + delta * v[i]
                 hpos[halfNe - 1] = halfL
             else:
-                hpos[0] += delta * opt_vector[0] / 2.0
+                hpos[0] += delta * v[0] / 2.0
                 for i in range(1, halfNe):
                     hpos[i] = hpos[i - 1] + dmin + delta * v[i]
 
