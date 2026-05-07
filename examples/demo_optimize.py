@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import warnings
+warnings.filterwarnings("ignore")
 import numpy as np
 from antopt import LMMapper, Pattern, run_optimization
 
@@ -17,17 +19,18 @@ Ne = 152                  # 阵元数
 L = 98.5                # 孔径 (λ)
 dmin = 0.5               # 最小间距 (λ)
 SYMMETRIC = True        # 对称模式
+FIXED_APERTURE = True   # 固定孔径
 THETA_STEP = 0.1         # θ 步长（度）, 粗步长加快优化
 
 POP_SIZE = 100            # CMA-ES 种群大小
 MAX_ITER = 300           # 最大迭代次数
-SEED = 42                # 随机种子
+SEED = 41                # 随机种子
 
 # ═══════════════════════════════════════════════════════════
 #  优化
 # ═══════════════════════════════════════════════════════════
 
-mapper = LMMapper(Ne=Ne, L=L, dmin=dmin, is_symmetric=SYMMETRIC)
+mapper = LMMapper(Ne=Ne, L=L, dmin=dmin, is_symmetric=SYMMETRIC, is_fixed_aperture=FIXED_APERTURE)
 pat = Pattern(theta_deg_start=-90, theta_deg_end=90, theta_deg_step=THETA_STEP)
 
 print(f"阵元数: {Ne}, 孔径: {L}λ, dmin: {dmin}λ")

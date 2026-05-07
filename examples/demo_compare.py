@@ -7,6 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import time
+import warnings
+warnings.filterwarnings("ignore")
 import numpy as np
 from antopt import LMMapper, Pattern, run_optimization
 
