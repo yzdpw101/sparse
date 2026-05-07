@@ -115,8 +115,10 @@ if optimize_pos:
                       is_fixed_aperture=is_fixed)
     n_pos = mapper.n_vars
 else:
-    # 导入位置时不需 LM 映射器, 传一个 dummy (仅提供 Ne/has_center 等属性)
-    mapper = LMMapper(Ne=Ne, L=1.0, dmin=0.5)  # L/dmin 不会被使用
+    # 导入位置时 LM 映射器仅提供 Ne/is_symmetric 等属性
+    pos_span = init_pos[-1] - init_pos[0]
+    pos_dmin = min(np.diff(init_pos))
+    mapper = LMMapper(Ne=Ne, L=pos_span, dmin=pos_dmin, is_symmetric=is_sym)
     n_pos = 0
 
 pat = Pattern(theta_deg_start=theta_start, theta_deg_end=theta_end,
