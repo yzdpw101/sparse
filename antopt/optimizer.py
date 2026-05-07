@@ -161,14 +161,32 @@ class SparseArrayProblem:
                 mr_1d = self.mainlobe_region
             psll_val, _ = get_psll(af_db, self.pattern.theta_deg, mainlobe_region=mr_1d)
 
-        # 6. HPBW 惩罚
+        # 6. 主瓣指向惩罚 (C++ mainBeamPointPunishment)
+        pointing_penalty = 0.0
+        if not self.pattern.is_planar:
+            from .analysis import _find_peaks  # 内部: 返回 (indices, values)
+            indices, extrema = _find_peaks(af_db)
+            # 目标指向对应的索引
+            target_idx = int(np.argmin(np.abs(self.pattern.theta_deg - self.pattern.theta0s_deg[0])))
+            # 找最接近 0 dB 且最接近目标的峰值 = 主瓣
+            main_idx = indices[0]
+            for j in range(1, len(indices)):
+                if abs(extrema[j]) < 1e-6:
+                    cur = indices[j]
+                    if abs(cur - target_idx) < abs(main_idx - target_idx):
+                        main_idx = cur
+                else:
+                    break
+            pointing_penalty = abs(main_idx - target_idx) * 100.0
+
+        # 7. HPBW 惩罚
         penalty = 0.0
         if self.target_hpbw < 180.0:
             hpbw = self._compute_hpbw(af_db)
             if hpbw > self.target_hpbw:
                 penalty = (hpbw - self.target_hpbw) * 100.0
 
-        return float(psll_val) + penalty
+        return float(psll_val) + pointing_penalty + penalty
 
     def _compute_hpbw(self, af_db: np.ndarray) -> float:
         if self.pattern.is_planar:

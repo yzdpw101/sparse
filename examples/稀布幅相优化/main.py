@@ -134,7 +134,6 @@ if use_fe and fe_dir:
             input_theta_range=cfg.get("feThetaRange", (-90.0, 90.0)),
         )
         print(f"  加载单元方向图: {len(fe_patterns)} 个频率, 每个 {len(fe_patterns[0])} 点")
-print(fe_patterns[0])
 
 # ── 4. 构造 ──
 print(f"=== 稀布幅相优化 ===")
@@ -212,16 +211,53 @@ print(f"  间距: {np.array2string(np.diff(pos), precision=3, max_line_width=120
 theta = pat.theta_deg
 af_db = Pattern.to_dB(pattern)
 
-# 绘图
 from antopt.analysis import find_peaks, get_psll
-from visualization import plot_pattern_1d
 psll_val, psll_angle = get_psll(af_db, theta)
-values, angles = find_peaks(af_db, theta)
+all_vals, all_angles = find_peaks(af_db, theta)
 
-title = f"方向图 (f={freqs[0]:.4g}GHz, theta0={theta0s[0]} deg, PSLL={psll_val:.2f}dB)"
-fig, ax = plt.subplots(figsize=(10, 5))
-plot_pattern_1d(ax, theta, af_db, peaks=(values, angles),
-                psll=(psll_val, psll_angle), title=title)
+# 主瓣: 最接近 0 dB 且最接近指向角的峰值
+target_angle = theta0s[0]
+main_idx = np.argmax(af_db)  # 默认最大值为 main lobe
+near_zero = np.abs(all_vals) < 1e-6
+if near_zero.any():
+    candidates_idx = np.where(near_zero)[0]
+    main_idx_rel = candidates_idx[np.argmin(np.abs(all_angles[candidates_idx] - target_angle))]
+    main_val = all_vals[main_idx_rel]
+    main_ang = all_angles[main_idx_rel]
+else:
+    main_val = all_vals[0]
+    main_ang = all_angles[0]
+
+# 副瓣: 非主瓣的最高峰
+sll_mask = np.ones(len(all_vals), dtype=bool)
+if near_zero.any():
+    sll_mask[candidates_idx] = False
+sll_vals = all_vals[sll_mask]
+sll_angles = all_angles[sll_mask]
+sll_val = sll_vals[0] if len(sll_vals) > 0 else -np.inf
+sll_ang = sll_angles[0] if len(sll_vals) > 0 else np.nan
+
+# 绘图
+fig, ax = plt.subplots(figsize=(11, 6))
+ax.plot(theta, af_db, linewidth=1.0, color='steelblue')
+# 主瓣标记 (绿色方块)
+ax.scatter([main_ang], [main_val], c='green', s=80, marker='s', zorder=6,
+           label=f'Main lobe: {main_val:.4f} dB @ {main_ang:.2f}$^\\circ$')
+# 副瓣标记 (红色菱形)
+if not np.isinf(sll_val):
+    ax.scatter([sll_ang], [sll_val], c='red', s=80, marker='D', zorder=6,
+               label=f'Side lobe: {sll_val:.4f} dB @ {sll_ang:.2f}$^\\circ$')
+# 3dB 线
+ax.axhline(y=-3, color='gray', linestyle='--', alpha=0.4, linewidth=0.8)
+
+title = f"Radiation Pattern  (f={freqs[0]:.4g} GHz, $\\theta_0$={theta0s[0]:.1f}$^\\circ$, PSLL={psll_val:.2f} dB)"
+ax.set_xlabel("$\\theta$ (deg)")
+ax.set_ylabel("Normalized Pattern (dB)")
+ax.set_title(title)
+ax.set_ylim(-60, 3)
+ax.grid(True, alpha=0.3)
+ax.legend()
+plt.tight_layout()
 plt.show()
 
 # ── 7. 保存结果 ──
