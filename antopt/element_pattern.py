@@ -91,20 +91,24 @@ class ElementPattern:
         theta: np.ndarray,
         oriDegStep: float,
         phiIdx: int = 1,
+        gain_in_db: bool = False,
+        input_theta_range: tuple[float, float] = (-180.0, 180.0),
     ) -> list[np.ndarray]:
         """多频单元方向图导入 — 对应 C++ readFeMultiFreqFromCsvs。
 
-        每个频率一个 CSV 文件: eGain_{freq}GHz.csv。
+        每个频率一个 CSV 文件: eGain_{freq}GHz.csv 或 {freq}GHz_*.csv。
 
         Args:
             eGainCsvDirectory: CSV 文件目录
-            frequenciesGHz: 频率数组 (GHz)，shape (Nf,)
+            frequenciesGHz: 频率数组 (GHz)
             theta: 目标 θ 角度网格 (度)
             oriDegStep: CSV 原始 θ 步长 (度)
-            phiIdx: CSV 列索引 (0-based), 默认 1 = phi=0° 增益列
+            phiIdx: CSV 列索引 (0-based), 默认 1
+            gain_in_db: CSV 增益数据是 dB 格式 (True=10^(val/20))
+            input_theta_range: CSV 数据覆盖的 θ 范围 (默认 -180~180)
 
         Returns:
-            list of np.ndarray, 每个频率一个 Fe (field pattern = sqrt(gain))
+            list of np.ndarray, 每个频率一个 Fe (field pattern = sqrt(linear_gain))
         """
         import csv, os
 
@@ -115,13 +119,15 @@ class ElementPattern:
         if step_ratio < 1:
             raise ValueError(f"target step ({target_step}) < ori step ({oriDegStep})")
 
+        in_t0, in_t1 = input_theta_range
+        # 文件内行偏移: 第 1 行 = in_t0, 由 input_theta_range 决定
+        _row0_theta = in_t0
+
         result = []
         for fGHz in frequenciesGHz:
-            # 格式化频率名: 去掉末尾无效零, 先找 C++ 命名, 再找任意匹配
             freq_str = f"{fGHz:g}"
             csv_path = os.path.join(eGainCsvDirectory, f"eGain_{freq_str}GHz.csv")
             if not os.path.exists(csv_path):
-                # 回退: 找以 "{freq_str}GHz" 开头的 CSV
                 candidates = [
                     f for f in os.listdir(eGainCsvDirectory)
                     if f.startswith(f"{freq_str}GHz") and f.endswith(".csv")
@@ -131,40 +137,53 @@ class ElementPattern:
                 else:
                     raise FileNotFoundError(f"单元方向图文件不存在: {csv_path}")
 
-            # 读第二列（phi=0 数据）
-            gains = []
-            row_start = 1 + int(round((180.0 + theta_start) / oriDegStep))
-            row_end = 1 + int(round((180.0 + theta_end) / oriDegStep))
-
+            # 读取数据 — 行号 i 对应 theta = _row0_theta + i * oriDegStep
+            raw = []
+            row_start = int(round((theta_start - _row0_theta) / oriDegStep))
+            row_end = int(round((theta_end - _row0_theta) / oriDegStep))
             with open(csv_path, "r") as f:
                 reader = csv.reader(f)
                 for i, row in enumerate(reader):
-                    if i == 0:
-                        continue  # 跳过表头
                     if i < row_start:
                         continue
                     if i > row_end:
                         break
-                    if len(row) >= 2:
-                        try:
-                            gains.append(float(row[phiIdx]))
-                        except (ValueError, IndexError):
-                            continue
+                    try:
+                        val = float(row[phiIdx]) if len(row) > phiIdx else float(row[0])
+                        raw.append(val)
+                    except (ValueError, IndexError):
+                        continue
 
-            if not gains:
+            if not raw:
                 raise RuntimeError(f"无法从 {csv_path} 读取数据")
 
             # 降采样
-            gains = gains[::step_ratio]
-            gains = np.array(gains, dtype=float)
+            raw = raw[::step_ratio]
 
-            # Fe = sqrt(max(0, gain))
-            Fe = np.sqrt(np.maximum(gains, 0.0))
+            raw = np.array(raw, dtype=float)
+
+            # dB → linear gain, 然后 Fe = sqrt(gain) = 10^(dB/20)
+            if gain_in_db:
+                raw = 10.0 ** (raw / 20.0)
+            else:
+                # 线性增益 → Fe = sqrt(gain)
+                raw = np.sqrt(np.maximum(raw, 0.0))
+
+            # 输入范围不足 -180~180 时，补零到 3601 网格
+            need_full = (in_t0 > -180.0 or in_t1 < 180.0)
+            if need_full and abs(in_t1 - in_t0) < 179.9:
+                full_n = 1 + int(round(360.0 / oriDegStep))
+                padded = np.full(full_n, 0.0)
+                pad_start = int(round((180.0 + in_t0) / oriDegStep))
+                n_avail = min(len(raw), full_n - pad_start)
+                padded[pad_start:pad_start + n_avail] = raw[:n_avail]
+                raw = padded
+
+            Fe = raw
 
             # 确保长度匹配 theta
             if len(Fe) != len(theta):
-                # 长度不匹配时重采样
-                Fe = np.interp(theta, np.linspace(theta_start, theta_end, len(Fe)), Fe)
+                Fe = np.interp(theta, np.linspace(-180.0, 180.0, len(Fe)), Fe)
 
             result.append(Fe)
 
