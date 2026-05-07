@@ -47,6 +47,11 @@ init_pos = load_array_config(imp.get("positionsFile"), "xCenters", HERE) if p_mo
 init_phs = load_array_config(imp.get("phasesFile"), "phasesDeg", HERE) if h_mode == 2 else None
 init_amp = load_array_config(imp.get("amplitudesFile"), "amplitudes", HERE) if a_mode == 2 else None
 
+# 导入的绝对位置 (m) → 波长数 (λ₀ = c / f₀)
+if init_pos is not None:
+    lam0 = 299792458.0 / (freqs[0] * 1e9)
+    init_pos = init_pos / lam0
+
 optimize_pos = (p_mode == 1)
 if optimize_pos:
     arr = cfg["antennaArray"]
