@@ -82,7 +82,7 @@ print(f"\n{'mode':>5s}  {'模式':<20s}  {'PSLL (dB)':>10s}  {'耗时':>7s}  {'n
 print(f"{'-'*53}")
 for mode, desc in MODES:
     r, t = results[mode]
-    nv = (mode % 10 == 1) * mapper.n_vars + ((mode//10)%10 == 1) * Ne + ((mode//100)%10 == 1) * Ne
+    nv = ((mode // 100) % 10 == 1) * mapper.n_vars + ((mode // 10) % 10 == 1) * Ne + (mode % 10 == 1) * Ne
     print(f"{mode:>5d}  {desc:<20s}  {r['f']:>10.4f}  {t:>6.1f}s  {nv:>6d}")
 
 print(f"{'='*55}")

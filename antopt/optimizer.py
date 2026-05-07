@@ -3,12 +3,12 @@
 所有优化变量 ∈ ℝ（无约束），通过 sigmoid 映射到目标范围。
 对应 C++ Main.cpp 的 minimizePSLL + getYc 流程。
 
-mode 编码（3 位，每位 0/1/2）：
-  百位 = 位置: 0=导入, 1=优化
+mode 编码（3 位，每位 0/1/2，位置必为 1 或 2）：
+  百位 = 位置: 1=优化, 2=导入
   十位 = 相位: 0=等相位(全0), 1=优化, 2=导入
   个位 = 幅度: 0=等幅度(全1), 1=优化, 2=导入
   三位中至少有一位为 1（否则无优化变量）
-  例: 100=仅稀布, 111=全优化, 110=稀布+相位优化, 120=稀布+导入幅度
+  14 种: 100-102,110-112,120-122, 201,210-212,221
 
 可用算法:
   - cma: pycma CMA-ES（参考实现）
@@ -62,10 +62,12 @@ class SparseArrayProblem:
         h_mode = (mode // 10) % 10
         a_mode = mode % 10
 
-        if p_mode not in (0, 1) or h_mode not in (0, 1, 2) or a_mode not in (0, 1, 2):
-            raise ValueError(f"mode={mode} 非法，每位必须是 0/1/2（个十百位）")
+        if p_mode not in (1, 2):
+            raise ValueError(f"mode={mode}: 百位(位置)必须是 1 或 2")
+        if h_mode not in (0, 1, 2) or a_mode not in (0, 1, 2):
+            raise ValueError(f"mode={mode}: 十位/个位必须是 0/1/2")
         if 1 not in (p_mode, h_mode, a_mode):
-            raise ValueError(f"mode={mode} 无优化变量，至少一位为 1")
+            raise ValueError(f"mode={mode}: 至少一位为 1")
 
         self.mapper = mapper
         self.pattern = pattern
@@ -98,10 +100,8 @@ class SparseArrayProblem:
         # 1. 位置
         if self._p_mode == 1:
             pos = self.mapper.synthesize(x[:self.n_pos])
-        elif self._p_mode == 0:
+        else:  # _p_mode == 2
             pos = self.init_positions
-        else:
-            raise RuntimeError("无位置来源")
 
         # 2. 相位
         if self._h_mode == 1:
@@ -179,7 +179,7 @@ class SparseArrayProblem:
         r = {}
         if self._p_mode == 1:
             r["positions"] = self.mapper.synthesize(x[:self.n_pos])
-        else:
+        else:  # _p_mode == 2
             r["positions"] = self.init_positions
 
         if self._h_mode == 1:
