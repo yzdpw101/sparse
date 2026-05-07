@@ -56,6 +56,7 @@ class SparseArrayProblem:
         amplitude_bounds: tuple[float, float] = (0.0, 1.0),
         target_hpbw: float = 180.0,
         mainlobe_region: Optional[tuple] = None,
+        element_patterns: Optional[list] = None,
     ):
         # 解码 mode: 百位=位置, 十位=相位, 个位=幅度
         p_mode = (mode // 100) % 10
@@ -81,6 +82,7 @@ class SparseArrayProblem:
         self.amplitude_lower, self.amplitude_upper = amplitude_bounds
         self.target_hpbw = target_hpbw
         self.mainlobe_region = mainlobe_region
+        self.element_patterns = element_patterns
 
         # 变量维度
         self.n_pos = mapper.n_vars if p_mode == 1 else 0
@@ -133,6 +135,14 @@ class SparseArrayProblem:
         else:
             af = self.pattern.linear_af(pos, amps, phases)
 
+        # 单元方向图乘积: pattern = Fe * |AF|  (C++ readFeMultiFreqFromCsvs)
+        if self.element_patterns is not None:
+            af_mag = np.abs(af)
+            if af.ndim == 1:  # 单频线阵 (Nθ,)
+                af = af_mag * self.element_patterns[0]
+            else:             # 多频线阵 (Nf, Nθ)
+                for i in range(len(self.element_patterns)):
+                    af[i] = af_mag[i] * self.element_patterns[i]
         af_db = Pattern.to_dB(af)
 
         # 5. PSLL

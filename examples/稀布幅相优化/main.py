@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np
 from antopt import LMMapper, Pattern, run_optimization
+from antopt.element_pattern import ElementPattern
 
 HERE = Path(__file__).resolve().parent
 
@@ -74,6 +75,18 @@ init_pos = load_array_key(imp.get("positionsFile"), "xCenters") if p_mode in (0,
 init_phs = load_array_key(imp.get("phasesFile"), "phasesDeg") if h_mode == 2 else None
 init_amp = load_array_key(imp.get("amplitudesFile"), "amplitudes") if a_mode == 2 else None
 
+# 单元方向图: 多频 CSV → Fe = sqrt(gain)
+fe_patterns = None
+if use_fe and fe_dir:
+    fe_path = HERE / fe_dir
+    if fe_path.exists():
+        fe_patterns = ElementPattern.from_hfss_multi_freq(
+            str(fe_path), freqs,
+            np.arange(theta_start, theta_end + theta_step/2, theta_step),
+            fe_deg_step or 0.01,
+        )
+        print(f"  加载单元方向图: {len(fe_patterns)} 个频率, 每个 {len(fe_patterns[0])} 点")
+
 # ── 4. 构造 ──
 print(f"=== 稀布幅相优化 ===")
 print(f"  阵列: {Ne}元, 孔径={L}λ, dmin={dmin}λ, 对称={is_sym}")
@@ -109,6 +122,7 @@ problem_opts = dict(
     init_amplitudes=init_amp,
     amplitude_bounds=amp_bounds,
     target_hpbw=hpbw_target,
+    element_patterns=fe_patterns,
 )
 
 t0 = time.perf_counter()

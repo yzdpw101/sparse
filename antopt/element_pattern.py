@@ -83,3 +83,87 @@ class ElementPattern:
     def from_csv(filepath: str, theta: np.ndarray) -> np.ndarray:
         """从 CSV 文件导入单元方向图（别名）。"""
         return ElementPattern.from_hfss(filepath, theta)
+
+    @staticmethod
+    def from_hfss_multi_freq(
+        eGainCsvDirectory: str,
+        frequenciesGHz: np.ndarray,
+        theta: np.ndarray,
+        oriDegStep: float,
+    ) -> list[np.ndarray]:
+        """多频单元方向图导入 — 对应 C++ readFeMultiFreqFromCsvs。
+
+        每个频率一个 CSV 文件: eGain_{freq}GHz.csv，第二列为 phi=0° 的增益。
+
+        Args:
+            eGainCsvDirectory: CSV 文件目录
+            frequenciesGHz: 频率数组 (GHz)，shape (Nf,)
+            theta: 目标 θ 角度网格 (度)
+            oriDegStep: CSV 原始 θ 步长 (度)
+
+        Returns:
+            list of np.ndarray, 每个频率一个 Fe (field pattern = sqrt(gain))
+        """
+        import csv, os
+
+        theta_start = float(theta[0])
+        theta_end = float(theta[-1])
+        target_step = abs(float(theta[1] - theta[0]))
+        step_ratio = int(round(target_step / oriDegStep))
+        if step_ratio < 1:
+            raise ValueError(f"target step ({target_step}) < ori step ({oriDegStep})")
+
+        result = []
+        for fGHz in frequenciesGHz:
+            # 格式化频率名: 去掉末尾无效零, 先找 C++ 命名, 再找任意匹配
+            freq_str = f"{fGHz:g}"
+            csv_path = os.path.join(eGainCsvDirectory, f"eGain_{freq_str}GHz.csv")
+            if not os.path.exists(csv_path):
+                # 回退: 找以 "{freq_str}GHz" 开头的 CSV
+                candidates = [
+                    f for f in os.listdir(eGainCsvDirectory)
+                    if f.startswith(f"{freq_str}GHz") and f.endswith(".csv")
+                ]
+                if candidates:
+                    csv_path = os.path.join(eGainCsvDirectory, candidates[0])
+                else:
+                    raise FileNotFoundError(f"单元方向图文件不存在: {csv_path}")
+
+            # 读第二列（phi=0 数据）
+            gains = []
+            row_start = 1 + int(round((180.0 + theta_start) / oriDegStep))
+            row_end = 1 + int(round((180.0 + theta_end) / oriDegStep))
+
+            with open(csv_path, "r") as f:
+                reader = csv.reader(f)
+                for i, row in enumerate(reader):
+                    if i == 0:
+                        continue  # 跳过表头
+                    if i < row_start:
+                        continue
+                    if i > row_end:
+                        break
+                    if len(row) >= 2:
+                        try:
+                            gains.append(float(row[1]))
+                        except ValueError:
+                            continue
+
+            if not gains:
+                raise RuntimeError(f"无法从 {csv_path} 读取数据")
+
+            # 降采样
+            gains = gains[::step_ratio]
+            gains = np.array(gains, dtype=float)
+
+            # Fe = sqrt(max(0, gain))
+            Fe = np.sqrt(np.maximum(gains, 0.0))
+
+            # 确保长度匹配 theta
+            if len(Fe) != len(theta):
+                # 长度不匹配时重采样
+                Fe = np.interp(theta, np.linspace(theta_start, theta_end, len(Fe)), Fe)
+
+            result.append(Fe)
+
+        return result
