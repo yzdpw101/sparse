@@ -1,9 +1,11 @@
-"""稀布阵列优化器 — 基于 pymoo CMA-ES。
+"""稀布阵列优化器 — 基于 pymoo CMA-ES + 并行评估。
 
 对应 C++ Main.cpp 的 minimizePSLL + getYc 流程。
 """
 
+import os
 from typing import Optional
+from multiprocessing.pool import ThreadPool
 import numpy as np
 from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
 from pymoo.core.problem import Problem
@@ -71,14 +73,23 @@ class SparseArrayProblem(Problem):
         xl[-self.n_amp or n_vars:] = amplitude_bounds[0]
         xu[-self.n_amp or n_vars:] = amplitude_bounds[1]
 
+        self._pool = None  # 由 run_optimization 注入
+
         super().__init__(n_var=n_vars, n_obj=1, xl=xl, xu=xu)
 
     def _evaluate(self, x, out, *args, **kwargs):
         n_pop = len(x)
         f = np.zeros(n_pop)
 
-        for i in range(n_pop):
-            f[i] = self._fitness(x[i])
+        if self._pool is not None:
+            results = self._pool.starmap(
+                self._fitness, [(xi,) for xi in x]
+            )
+            for i, val in enumerate(results):
+                f[i] = val
+        else:
+            for i in range(n_pop):
+                f[i] = self._fitness(x[i])
 
         out["F"] = f.reshape(-1, 1)
 
@@ -228,6 +239,7 @@ def run_optimization(
     sigma: float = 1.0,
     seed: int = 0,
     verbose: bool = True,
+    n_jobs: int = 1,
     **kwargs,
 ) -> dict:
     """运行 CMA-ES 稀疏阵列优化。
@@ -240,6 +252,7 @@ def run_optimization(
         sigma: 初始步长
         seed: 随机种子，0 = 随机
         verbose: 是否打印进度
+        n_jobs: 并行线程数，1=单线程，-1=全部 CPU
         **kwargs: 传给 SparseArrayProblem
 
     Returns:
@@ -248,7 +261,14 @@ def run_optimization(
     if seed == 0:
         seed = np.random.randint(1, 2**31)
 
+    if n_jobs < 0:
+        n_jobs = os.cpu_count() or 4
+
+    pool = None
     problem = SparseArrayProblem(mapper, pattern, **kwargs)
+    if n_jobs > 1:
+        pool = ThreadPool(n_jobs)
+        problem._pool = pool
 
     algorithm = CMAES(
         x0=None,
@@ -258,8 +278,12 @@ def run_optimization(
 
     termination = get_termination("n_eval", max_iter * pop_size)
 
-    algorithm.setup(problem, seed=seed, verbose=verbose)
-    algorithm.run()
+    try:
+        algorithm.setup(problem, seed=seed, verbose=verbose)
+        algorithm.run()
+    finally:
+        if pool is not None:
+            pool.terminate()
 
     res = algorithm.result()
 
