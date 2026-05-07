@@ -32,12 +32,13 @@ amp_bounds = tuple(cfg["amplitudeBounds"])
 hpbw_target = cfg.get("targetHPBW", 100.0)
 use_fe = cfg.get("useFe", False)
 fe_dir = cfg.get("eGainCsvDirectory", None)
+fe_deg_step = cfg.get("eGainDegStep", None)
 
 arr = cfg["antennaArray"]
 L = arr["L_wavelength"]
 dmin = arr["dmin_wavelength"]
-dmax = arr.get("dmax_wavelength", -1)
-if dmax == -1 or dmax <= 0:
+dmax = arr.get("dmax_wavelength")
+if dmax is None or dmax <= 0:
     dmax = None
 Ne = arr["Ne"]
 is_sym = arr.get("isSymmetryArray", False)

@@ -12,10 +12,11 @@
   "targetHPBW": 100.0,
   "useFe": false,
   "eGainCsvDirectory": null,
+  "eGainDegStep": null,
   "antennaArray": {
     "L_wavelength": 9.744,
     "dmin_wavelength": 0.5,
-    "dmax_wavelength": -1,
+    "dmax_wavelength": null,
     "Ne": 17,
     "isSymmetryArray": false,
     "isFixedAperture": false
