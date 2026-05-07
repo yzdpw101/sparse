@@ -265,9 +265,13 @@ def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_j
     if pop_size is None:
         pop_size = 4 + int(3 * np.log(n_vars))
 
+    if isinstance(verbose, bool):
+        cma_verbose = 1 if verbose else -9
+    else:
+        cma_verbose = int(verbose)  # 直传用户指定值
     opts = {
         "seed": seed, "maxfevals": max_iter * pop_size,
-        "verbose": 1 if verbose else -9,
+        "verbose": cma_verbose,
         "CMA_diagonal": n_vars > 30, "popsize": pop_size,
     }
     if stop_fitness is not None:
