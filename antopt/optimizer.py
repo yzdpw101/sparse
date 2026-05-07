@@ -212,6 +212,7 @@ def run_optimization(
     verbose: bool = True,
     method: str = "cma",
     n_jobs: int = 1,
+    stop_fitness: Optional[float] = None,
     **kwargs,
 ) -> dict:
     if seed == 0:
@@ -221,14 +222,14 @@ def run_optimization(
     n_vars = problem.n_vars
 
     if method == "cma":
-        return _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_jobs)
+        return _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_jobs, stop_fitness)
     elif method in _NG_OPTIMIZERS:
         return _run_nevergrad(problem, n_vars, method, pop_size, max_iter, seed, verbose)
     else:
         raise ValueError(f"未知 method: {method}, 可用: cma, {list(_NG_OPTIMIZERS)}")
 
 
-def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_jobs):
+def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_jobs, stop_fitness=None):
     if x0 is None:
         x0 = np.zeros(n_vars)
     if n_jobs < 0:
@@ -236,11 +237,14 @@ def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_j
     if pop_size is None:
         pop_size = 4 + int(3 * np.log(n_vars))
 
-    es = cma.CMAEvolutionStrategy(x0, sigma0, {
+    opts = {
         "seed": seed, "maxfevals": max_iter * pop_size,
         "verbose": 0 if verbose else -9,
         "CMA_diagonal": n_vars > 30, "popsize": pop_size,
-    })
+    }
+    if stop_fitness is not None:
+        opts["ftarget"] = stop_fitness
+    es = cma.CMAEvolutionStrategy(x0, sigma0, opts)
     pool = ThreadPool(n_jobs) if n_jobs > 1 else None
     try:
         while not es.stop():

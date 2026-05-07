@@ -22,21 +22,32 @@ with open(HERE / "Config.json", encoding="utf-8") as f:
 # ── 2. 解析参数 ──
 freqs = np.array(cfg["frequenciesGHz"], dtype=float)
 seed = cfg["randomSeed"]
-theta_step = cfg["aspectAngle"]["thetaStepDeg"]
-theta0s = np.array(cfg["aspectAngle"]["theta0sDeg"], dtype=float)
+asp = cfg["aspectAngle"]
+theta_start = asp.get("thetaStartDeg", -90)
+theta_end = asp.get("thetaEndDeg", 90)
+theta_step = asp["thetaStepDeg"]
+theta0s = np.array(asp["theta0sDeg"], dtype=float)
 mode = cfg["mode"]
 amp_bounds = tuple(cfg["amplitudeBounds"])
-hpbw_target = cfg["targetHPBW"]
+hpbw_target = cfg.get("targetHPBW", 100.0)
+use_fe = cfg.get("useFe", False)
+fe_dir = cfg.get("eGainCsvDirectory", None)
 
 arr = cfg["antennaArray"]
 L = arr["L_wavelength"]
 dmin = arr["dmin_wavelength"]
+dmax = arr.get("dmax_wavelength", -1)
+if dmax == -1 or dmax <= 0:
+    dmax = None
 Ne = arr["Ne"]
-is_sym = arr["isSymmetryArray"]
+is_sym = arr.get("isSymmetryArray", False)
+is_fixed = arr.get("isFixedAperture", False)
 
 opt = cfg["optimizer"]
 method = opt["method"]
 opt_params = opt.get(method, {})
+verbose = opt_params.pop("verbose", method != "cma")  # cma 默认 verbose
+stop_fitness = opt_params.pop("stopFitness", None)
 
 # ── 3. 导入阵元配置（按需） ──
 def load_array_key(filename, key):
@@ -71,8 +82,11 @@ print(f"  频率: {freqs.tolist()} GHz, 扫描角: {theta0s.tolist()} deg")
 print(f"  优化器: {method}, 参数: {opt_params}")
 print(f"  变量维度: ", end="")
 
-mapper = LMMapper(Ne=Ne, L=L, dmin=dmin, is_symmetric=is_sym)
-pat = Pattern(theta_deg_step=theta_step)
+mapper = LMMapper(Ne=Ne, L=L, dmin=dmin, dmax=dmax, is_symmetric=is_sym,
+                  is_fixed_aperture=is_fixed)
+pat = Pattern(theta_deg_start=theta_start, theta_deg_end=theta_end,
+              theta_deg_step=theta_step, theta0s_deg=theta0s,
+              frequenciesGHz=freqs)
 
 n_pos = mapper.n_vars if p_mode == 1 else 0
 n_phs = Ne if h_mode == 1 else 0
@@ -80,14 +94,13 @@ n_amp = Ne if a_mode == 1 else 0
 print(f"{n_pos} (位置) + {n_phs} (相位) + {n_amp} (幅度) = {n_pos + n_phs + n_amp}")
 
 # ── 5. 优化 ──
-# 分离 run_optimization 参数和 SparseArrayProblem 参数
 run_opts = {}
 for k in ("pop_size", "max_iter", "n_jobs"):
     if k in opt_params:
         run_opts[k] = opt_params[k]
 if "sigma" in opt_params:
     run_opts["sigma0"] = opt_params["sigma"]
-# mode 对应 SparseArrayProblem 参数
+
 problem_opts = dict(
     mode=mode,
     init_positions=init_pos,
@@ -102,6 +115,8 @@ result = run_optimization(
     mapper, pat,
     method=method,
     seed=seed,
+    verbose=verbose,
+    stop_fitness=stop_fitness,
     **run_opts,
     **problem_opts,
 )

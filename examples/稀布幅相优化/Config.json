@@ -2,24 +2,30 @@
   "frequenciesGHz": [2.45],
   "randomSeed": 0,
   "aspectAngle": {
+    "thetaStartDeg": -90,
+    "thetaEndDeg": 90,
     "thetaStepDeg": 0.1,
     "theta0sDeg": [0]
   },
   "mode": 100,
   "amplitudeBounds": [0.0, 1.0],
   "targetHPBW": 100.0,
+  "useFe": false,
+  "eGainCsvDirectory": null,
   "antennaArray": {
     "L_wavelength": 9.744,
     "dmin_wavelength": 0.5,
+    "dmax_wavelength": -1,
     "Ne": 17,
-    "isSymmetryArray": false
+    "isSymmetryArray": false,
+    "isFixedAperture": false
   },
   "optimizer": {
     "method": "cma",
-    "cma":    { "pop_size": 50, "max_iter": 10000, "sigma": 1.0, "n_jobs": 0 },
-    "ngopt":  { "pop_size": 50, "max_iter": 10000 },
-    "cma_ng": { "pop_size": 50, "max_iter": 10000 },
-    "de":     { "pop_size": 50, "max_iter": 10000 }
+    "cma":    { "pop_size": 50, "max_iter": 10000, "sigma": 1.0, "n_jobs": 0, "verbose": true,  "stopFitness": null },
+    "ngopt":  { "pop_size": 50, "max_iter": 10000,                    "n_jobs": 0, "verbose": false, "stopFitness": null },
+    "cma_ng": { "pop_size": 50, "max_iter": 10000,                    "n_jobs": 0, "verbose": false, "stopFitness": null },
+    "de":     { "pop_size": 50, "max_iter": 10000,                    "n_jobs": 0, "verbose": false, "stopFitness": null }
   },
   "import": {
     "positionsFile": null,
