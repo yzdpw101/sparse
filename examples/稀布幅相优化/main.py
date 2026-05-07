@@ -13,8 +13,45 @@ import warnings; warnings.filterwarnings("ignore")
 import numpy as np
 from antopt import LMMapper, Pattern, run_optimization
 from antopt.element_pattern import ElementPattern
+import matplotlib
+matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
+matplotlib.rcParams['axes.unicode_minus'] = False
+import matplotlib.pyplot as plt
 
 HERE = Path(__file__).resolve().parent
+
+
+def _to_json_flat(obj, indent=0):
+    """仿 C++ toJsonFlatArrays: 对象换行, 数组紧凑单行。"""
+    sp = " " * (indent + 2)
+    if isinstance(obj, dict):
+        if not obj:
+            return "{}"
+        items = []
+        for k, v in obj.items():
+            items.append(f'{sp}{json.dumps(k)}: {_to_json_flat(v, indent + 2)}')
+        return "{\n" + ",\n".join(items) + "\n" + " " * indent + "}"
+    elif isinstance(obj, list):
+        return json.dumps(obj)
+    else:
+        return json.dumps(obj)
+
+
+def _compute_pattern(pos, amps, phases, mapper, pat, fe_patterns):
+    """计算方向图乘积: pattern = Fe * |AF| (实数量)。"""
+    if pat.is_planar or not mapper.is_symmetric:
+        af = pat.linear_af(pos, amps, phases)
+    else:
+        halfNe = mapper._halfNe
+        af = pat.linear_af_symmetric(
+            pos[halfNe:], has_center=mapper.has_center,
+            amplitudes=amps[halfNe:], phases=phases[halfNe:],
+        )
+    af_abs = np.abs(af)
+    if fe_patterns is not None:
+        af_abs = af_abs * fe_patterns[0]
+    return af_abs
+
 
 # ── 1. 加载配置 ──
 with open(HERE / "Config.json", encoding="utf-8") as f:
@@ -97,6 +134,7 @@ if use_fe and fe_dir:
             input_theta_range=cfg.get("feThetaRange", (-90.0, 90.0)),
         )
         print(f"  加载单元方向图: {len(fe_patterns)} 个频率, 每个 {len(fe_patterns[0])} 点")
+print(fe_patterns[0])
 
 # ── 4. 构造 ──
 print(f"=== 稀布幅相优化 ===")
@@ -158,14 +196,33 @@ result = run_optimization(
 )
 elapsed = time.perf_counter() - t0
 
-# ── 6. 输出 ──
+# ── 6. 最优方向图 ──
 res = result["result"]
+pos = res["positions"]
+amps = res["amplitudes"]
+phases = np.deg2rad(res["phases_deg"])
+pattern = _compute_pattern(pos, amps, phases, mapper, pat, fe_patterns)
+
 print(f"\n  最优适应度: {result['f']:.4f} dB")
 print(f"  耗时: {elapsed:.1f}s")
-print(f"  位置: {np.array2string(res['positions'], precision=3, max_line_width=120)}")
-print(f"  间距: {np.array2string(np.diff(res['positions']), precision=3, max_line_width=120)}")
-if optimize_pos:
-    print(f"  孔径: {res['positions'][-1] - res['positions'][0]:.4f} λ")
+print(f"  位置: {np.array2string(pos, precision=3, max_line_width=120)}")
+print(f"  间距: {np.array2string(np.diff(pos), precision=3, max_line_width=120)}")
+
+# 绘图
+fig, ax = plt.subplots(figsize=(10, 5))
+theta = pat.theta_deg
+af_db = 20 * np.log10(pattern / pattern.max() + 1e-30)
+title = f"方向图 (f={freqs[0]:.4g}GHz, theta0={theta0s[0]} deg)"
+ax.plot(theta, af_db, linewidth=1.0)
+ax.set_xlabel("theta (deg)")
+ax.set_ylabel("归一化方向图 (dB)")
+ax.set_title(title)
+ax.set_ylim(-50, 3)
+ax.grid(True, alpha=0.3)
+fig_path = HERE / "result" / f"pattern_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+fig.savefig(fig_path, dpi=150, bbox_inches="tight")
+plt.close(fig)
+print(f"  方向图已保存: {fig_path}")
 
 # ── 7. 保存结果 ──
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -174,13 +231,19 @@ out_data = {
     "settings": cfg,
     "result": {
         "bestFitness": float(result["f"]),
-        "bestPositions": res["positions"].tolist(),
+        "bestPositions": pos.tolist(),
         "bestPhasesDeg": res["phases_deg"].tolist(),
-        "bestAmplitudes": res["amplitudes"].tolist(),
+        "bestAmplitudes": amps.tolist(),
         "optimizer": method,
         "elapsedSeconds": round(elapsed, 1),
     },
+    "pattern": {
+        "frequenciesGHz": freqs.tolist(),
+        "theta0sDeg": theta0s.tolist(),
+        "thetaDeg": theta.tolist(),
+        "value": pattern.tolist(),
+    },
 }
 with open(out_path, "w", encoding="utf-8") as f:
-    json.dump(out_data, f, indent=2, ensure_ascii=False)
-print(f"\n  结果已保存: {out_path}")
+    f.write(_to_json_flat(out_data))
+print(f"  结果已保存: {out_path}")
