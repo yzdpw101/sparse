@@ -84,6 +84,9 @@ if use_fe and fe_dir:
             str(fe_path), freqs,
             np.arange(theta_start, theta_end + theta_step/2, theta_step),
             fe_deg_step or 0.01,
+            is_gain=cfg.get("feIsGain", True),
+            in_dB=cfg.get("feInDB", False),
+            input_theta_range=cfg.get("feThetaRange", (-180.0, 180.0)),
         )
         print(f"  加载单元方向图: {len(fe_patterns)} 个频率, 每个 {len(fe_patterns[0])} 点")
 

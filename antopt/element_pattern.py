@@ -91,7 +91,8 @@ class ElementPattern:
         theta: np.ndarray,
         oriDegStep: float,
         phiIdx: int = 1,
-        gain_in_db: bool = False,
+        is_gain: bool = True,
+        in_dB: bool = False,
         input_theta_range: tuple[float, float] = (-180.0, 180.0),
     ) -> list[np.ndarray]:
         """多频单元方向图导入 — 对应 C++ readFeMultiFreqFromCsvs。
@@ -104,11 +105,15 @@ class ElementPattern:
             theta: 目标 θ 角度网格 (度)
             oriDegStep: CSV 原始 θ 步长 (度)
             phiIdx: CSV 列索引 (0-based), 默认 1
-            gain_in_db: CSV 增益数据是 dB 格式 (True=10^(val/20))
+            is_gain: True=CSV 为增益(功率), False=场量
+            in_dB: True=CSV 为 dB 值, False=线性值
             input_theta_range: CSV 数据覆盖的 θ 范围 (默认 -180~180)
 
+        转换规则 (增益+dB): Fe=10^(val/20); (场量+dB): Fe=10^(val/10);
+                  (增益+线性): Fe=sqrt(val);  (场量+线性): Fe=val.
+
         Returns:
-            list of np.ndarray, 每个频率一个 Fe (field pattern = sqrt(linear_gain))
+            list of np.ndarray, 每个频率一个 Fe (field pattern)
         """
         import csv, os
 
@@ -162,12 +167,16 @@ class ElementPattern:
 
             raw = np.array(raw, dtype=float)
 
-            # dB → linear gain, 然后 Fe = sqrt(gain) = 10^(dB/20)
-            if gain_in_db:
-                raw = 10.0 ** (raw / 20.0)
+            # 转换为场方向图 Fe
+            if in_dB:
+                if is_gain:
+                    raw = 10.0 ** (raw / 20.0)  # dB 增益 → Fe
+                else:
+                    raw = 10.0 ** (raw / 10.0)  # dB 场量 → Fe
             else:
-                # 线性增益 → Fe = sqrt(gain)
-                raw = np.sqrt(np.maximum(raw, 0.0))
+                if is_gain:
+                    raw = np.sqrt(np.maximum(raw, 0.0))  # 线性增益 → Fe
+                # else: 线性场量 → 无需转换
 
             # 输入范围不足 -180~180 时，补零到 3601 网格
             need_full = (in_t0 > -180.0 or in_t1 < 180.0)
