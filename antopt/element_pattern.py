@@ -90,16 +90,18 @@ class ElementPattern:
         frequenciesGHz: np.ndarray,
         theta: np.ndarray,
         oriDegStep: float,
+        phiIdx: int = 1,
     ) -> list[np.ndarray]:
         """多频单元方向图导入 — 对应 C++ readFeMultiFreqFromCsvs。
 
-        每个频率一个 CSV 文件: eGain_{freq}GHz.csv，第二列为 phi=0° 的增益。
+        每个频率一个 CSV 文件: eGain_{freq}GHz.csv。
 
         Args:
             eGainCsvDirectory: CSV 文件目录
             frequenciesGHz: 频率数组 (GHz)，shape (Nf,)
             theta: 目标 θ 角度网格 (度)
             oriDegStep: CSV 原始 θ 步长 (度)
+            phiIdx: CSV 列索引 (0-based), 默认 1 = phi=0° 增益列
 
         Returns:
             list of np.ndarray, 每个频率一个 Fe (field pattern = sqrt(gain))
@@ -145,8 +147,8 @@ class ElementPattern:
                         break
                     if len(row) >= 2:
                         try:
-                            gains.append(float(row[1]))
-                        except ValueError:
+                            gains.append(float(row[phiIdx]))
+                        except (ValueError, IndexError):
                             continue
 
             if not gains:
