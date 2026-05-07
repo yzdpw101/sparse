@@ -53,10 +53,12 @@ stop_fitness = opt_params.pop("stopFitness", None)
 
 # ── 3. 导入阵元配置（按需） ──
 def load_array_key(filename, key):
-    """从 JSON 文件加载 array_config 格式或纯数组。"""
+    """从 JSON 文件加载 array_config 格式或纯数组。支持相对/绝对路径。"""
     if not filename:
         return None
-    path = HERE / filename
+    path = Path(filename)
+    if not path.is_absolute():
+        path = HERE / filename
     if not path.exists():
         raise FileNotFoundError(f"导入文件不存在: {path}")
     with open(path) as f:
@@ -85,10 +87,18 @@ if use_fe and fe_dir:
             np.arange(theta_start, theta_end + theta_step/2, theta_step),
             fe_deg_step or 0.01,
             is_gain=cfg.get("feIsGain", True),
-            in_dB=cfg.get("feInDB", False),
-            input_theta_range=cfg.get("feThetaRange", (-180.0, 180.0)),
+            in_dB=cfg.get("feInDB", True),
+            input_theta_range=cfg.get("feThetaRange", (-90.0, 90.0)),
         )
         print(f"  加载单元方向图: {len(fe_patterns)} 个频率, 每个 {len(fe_patterns[0])} 点")
+
+# 校验导入数据长度
+if init_pos is not None and len(init_pos) != Ne:
+    raise ValueError(f"导入位置数 ({len(init_pos)}) != Ne ({Ne})")
+if init_phs is not None and len(init_phs) != Ne:
+    raise ValueError(f"导入相位数 ({len(init_phs)}) != Ne ({Ne})")
+if init_amp is not None and len(init_amp) != Ne:
+    raise ValueError(f"导入幅度数 ({len(init_amp)}) != Ne ({Ne})")
 
 # ── 4. 构造 ──
 print(f"=== 稀布幅相优化 ===")
