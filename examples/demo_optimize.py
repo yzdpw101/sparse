@@ -40,7 +40,6 @@ result = run_optimization(
     max_iter=MAX_ITER,
     seed=SEED,
     verbose=True,
-    n_jobs=-1,  # 使用全部 CPU 核心并行
 )
 
 # ═══════════════════════════════════════════════════════════
@@ -49,7 +48,7 @@ result = run_optimization(
 
 pos = result["result"]["positions"]
 print(f"\n--- 优化结果 ---")
-print(f"最优适应度 (PSLL): {result['F']:.4f} dB")
+print(f"最优适应度 (PSLL): {result['f']:.4f} dB")
 print(f"最优位置 (λ):")
 print(f"  {np.array2string(pos, precision=4, max_line_width=120)}")
 print(f"间距: {np.array2string(np.diff(pos), precision=4, max_line_width=120)}")

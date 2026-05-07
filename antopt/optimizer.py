@@ -1,25 +1,29 @@
-"""稀布阵列优化器 — 基于 pymoo CMA-ES + 并行评估。
+"""稀布阵列优化器 — 基于 cma (pycma) 无约束 CMA-ES。
 
+所有优化变量 ∈ ℝ（无约束），通过 sigmoid 映射到目标范围。
 对应 C++ Main.cpp 的 minimizePSLL + getYc 流程。
 """
 
-import os
 from typing import Optional
-from multiprocessing.pool import ThreadPool
 import numpy as np
-from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
-from pymoo.core.problem import Problem
-from pymoo.termination import get_termination
+import cma
 
 from .mapping import LMMapper
 from .pattern import Pattern
 from .analysis import get_psll
 
 TWO_PI = 2 * np.pi
+_SIGMOID_CLIP = 20.0  # 与 LMMapper 一致
 
 
-class SparseArrayProblem(Problem):
-    """稀布阵列优化问题 —— 包装为 pymoo Problem。"""
+class SparseArrayProblem:
+    """稀布阵列优化问题。
+
+    所有优化变量 ∈ ℝ（无约束）：
+      - 位置: sigmoid → (0,1) → LM 映射为物理位置
+      - 相位: sigmoid → (0, 2π)
+      - 幅度: sigmoid → [amp_lower, amp_upper]
+    """
 
     def __init__(
         self,
@@ -34,19 +38,6 @@ class SparseArrayProblem(Problem):
         target_hpbw: float = 180.0,
         mainlobe_region: Optional[tuple] = None,
     ):
-        """
-        Args:
-            mapper: LM 映射器
-            pattern: Pattern 方向图计算器
-            optimize_phase: 是否优化相位
-            optimize_amplitude: 是否优化幅度
-            init_positions: 导入的初始位置 (Ne,)，不可与 optimize_pos 共用
-            init_phases_deg: 导入的初始相位 (Ne,)，不可与 optimize_phase 共用
-            init_amplitudes: 导入的初始幅度 (Ne,)，不可与 optimize_amplitude 共用
-            amplitude_bounds: (lower, upper) 幅度范围
-            target_hpbw: 目标半功率波束宽度（度），≤HPBW 时不惩罚
-            mainlobe_region: 主瓣排除区域，传给 get_psll
-        """
         self.mapper = mapper
         self.pattern = pattern
         self.optimize_phase = optimize_phase
@@ -61,75 +52,57 @@ class SparseArrayProblem(Problem):
         self.n_pos = mapper.n_vars
         self.n_phase = mapper.Ne if optimize_phase else 0
         self.n_amp = mapper.Ne if optimize_amplitude else 0
-        n_vars = self.n_pos + self.n_phase + self.n_amp
+        self.n_vars = self.n_pos + self.n_phase + self.n_amp
 
-        # 边界：位置用大范围（sigmoid 钳位在 ±20），相位 [0, 2π]，幅度 [lb, ub]
-        xl = np.empty(n_vars)
-        xu = np.empty(n_vars)
-        xl[:self.n_pos] = -50.0
-        xu[:self.n_pos] = 50.0
-        xl[self.n_pos:self.n_pos + self.n_phase] = 0.0
-        xu[self.n_pos:self.n_pos + self.n_phase] = TWO_PI
-        xl[-self.n_amp or n_vars:] = amplitude_bounds[0]
-        xu[-self.n_amp or n_vars:] = amplitude_bounds[1]
+    @staticmethod
+    def _sigmoid(x: np.ndarray) -> np.ndarray:
+        """sigmoid: ℝ → (0, 1)。"""
+        return 1.0 / (1.0 + np.exp(-np.clip(x, -_SIGMOID_CLIP, _SIGMOID_CLIP)))
 
-        self._pool = None  # 由 run_optimization 注入
+    def fitness(self, x: np.ndarray) -> float:
+        """适应度 = PSLL + HPBW_惩罚。cma.fmin 要求 f(x) 返回标量。"""
+        x = np.asarray(x, dtype=float)
 
-        super().__init__(n_var=n_vars, n_obj=1, xl=xl, xu=xu)
-
-    def _evaluate(self, x, out, *args, **kwargs):
-        n_pop = len(x)
-        f = np.zeros(n_pop)
-
-        if self._pool is not None:
-            results = self._pool.starmap(
-                self._fitness, [(xi,) for xi in x]
-            )
-            for i, val in enumerate(results):
-                f[i] = val
-        else:
-            for i in range(n_pop):
-                f[i] = self._fitness(x[i])
-
-        out["F"] = f.reshape(-1, 1)
-
-    def _fitness(self, x: np.ndarray) -> float:
-        """适应度 = PSLL + HPBW_惩罚。"""
-        # 1. 提取位置
+        # 1. 位置：sigmoid → LM 映射
         if self.n_pos > 0:
-            pos = self.mapper.synthesize(x[:self.n_pos])
+            pos_vars = self._sigmoid(x[:self.n_pos])
+            pos = self.mapper.synthesize(pos_vars)
         elif self.init_positions is not None:
             pos = self.init_positions
         else:
             raise RuntimeError("无位置来源")
 
-        # 2. 构建激励
+        # 2. 相位：sigmoid → [0, 2π]
         Ne = self.mapper.Ne
-        amps = np.ones(Ne)
-        phases = np.zeros(Ne)
-
         if self.optimize_phase:
-            phases = x[self.n_pos:self.n_pos + self.n_phase]
+            phase_frac = self._sigmoid(
+                x[self.n_pos:self.n_pos + self.n_phase]
+            )
+            phases = phase_frac * TWO_PI
         elif self.init_phases_deg is not None:
             phases = np.deg2rad(self.init_phases_deg)
+        else:
+            phases = np.zeros(Ne)
 
+        # 3. 幅度：sigmoid → [amp_lb, amp_ub]
         if self.optimize_amplitude:
-            amps = x[-self.n_amp:]
+            amp_frac = self._sigmoid(x[-self.n_amp:])
+            amps = self.amplitude_lower + (
+                self.amplitude_upper - self.amplitude_lower
+            ) * amp_frac
         elif self.init_amplitudes is not None:
             amps = self.init_amplitudes
+        else:
+            amps = np.ones(Ne)
 
-        exc = amps * np.exp(1j * phases)
-
-        # 3. 计算 AF
+        # 4. 计算 AF
         if self.pattern.is_planar:
             af = self.pattern.planar_af(pos, np.zeros_like(pos), amps, phases)
         else:
             if self.mapper.is_symmetric:
-                # synthesize 返回完整位置；linear_af_symmetric 只需半边(x>0)
-                # 激励也需对应半边
                 halfNe = self.mapper._halfNe
-                half_pos = pos[halfNe:]      # 右侧位置 (hpos 或 hpos[1:])
-                half_amps = amps[halfNe:]    # 对应激励
+                half_pos = pos[halfNe:]
+                half_amps = amps[halfNe:]
                 half_phases = phases[halfNe:]
                 af = self.pattern.linear_af_symmetric(
                     half_pos, has_center=self.mapper.has_center,
@@ -140,31 +113,30 @@ class SparseArrayProblem(Problem):
 
         af_db = Pattern.to_dB(af)
 
-        # 4. PSLL
+        # 5. PSLL
         if self.pattern.is_planar:
-            psll, _ = get_psll(
+            pslls, _ = get_psll(
                 af_db, self.pattern.theta_deg, self.pattern.phi_deg,
                 mainlobe_region=self.mainlobe_region,
             )
-            # 2D get_psll 返回 (pslls, coords)，取最差值
             if af_db.ndim == 2:
-                valid = ~np.isinf(psll)
-                psll_val = float(np.max(psll[valid])) if valid.any() else 0.0
+                valid = ~np.isinf(pslls)
+                psll_val = float(np.max(pslls[valid])) if valid.any() else 0.0
             else:
-                psll_val = float(psll)
+                psll_val = float(pslls)
         else:
+            # 线阵: 解析 mainlobe_region
+            mr_1d = None
+            if self.mainlobe_region is not None:
+                if (isinstance(self.mainlobe_region, tuple) and
+                    len(self.mainlobe_region) == 2 and
+                    isinstance(self.mainlobe_region[0], (int, float, np.floating))):
+                    mr_1d = self.mainlobe_region
             psll_val, _ = get_psll(
-                af_db, self.pattern.theta_deg,
-                mainlobe_region=(
-                    self.mainlobe_region[0]
-                    if isinstance(self.mainlobe_region, tuple)
-                    and len(self.mainlobe_region) == 2
-                    and isinstance(self.mainlobe_region[0], (int, float))
-                    else self.mainlobe_region
-                ),
+                af_db, self.pattern.theta_deg, mainlobe_region=mr_1d,
             )
 
-        # 5. HPBW 惩罚
+        # 6. HPBW 惩罚
         hpbw_penalty = 0.0
         if self.target_hpbw < 180.0:
             hpbw = self._compute_hpbw(af_db)
@@ -176,7 +148,6 @@ class SparseArrayProblem(Problem):
     def _compute_hpbw(self, af_db: np.ndarray) -> float:
         """计算半功率波束宽度（度）。"""
         if self.pattern.is_planar:
-            # 取 φ=0 切片
             j0 = np.argmin(np.abs(self.pattern.phi_deg))
             pattern_1d = af_db[:, j0]
         else:
@@ -184,45 +155,44 @@ class SparseArrayProblem(Problem):
 
         peak_idx = int(np.argmax(pattern_1d))
         target = -3.0
-
-        # 左半
         left = pattern_1d[:peak_idx + 1]
-        left_diff = np.abs(left - target)
-        left_idx = int(np.argmin(left_diff))
-
-        # 右半
+        left_idx = int(np.argmin(np.abs(left - target)))
         right = pattern_1d[peak_idx:]
-        right_diff = np.abs(right - target)
-        right_idx = int(np.argmin(right_diff)) + peak_idx
-
+        right_idx = int(np.argmin(np.abs(right - target))) + peak_idx
         return (right_idx - left_idx) * np.abs(
             self.pattern.theta_deg[1] - self.pattern.theta_deg[0]
         )
 
     def get_result(self, x_opt: np.ndarray) -> dict:
-        """从最优变量提取结果字典。"""
+        """从最优无界变量提取结果字典。"""
+        x = np.asarray(x_opt, dtype=float)
         result = {}
 
-        # 位置
+        # 位置: sigmoid → LM
         if self.n_pos > 0:
-            pos = self.mapper.synthesize(x_opt[:self.n_pos])
+            pos_vars = self._sigmoid(x[:self.n_pos])
+            pos = self.mapper.synthesize(pos_vars)
         else:
             pos = self.init_positions
         result["positions"] = pos
 
-        # 相位
+        # 相位: sigmoid → deg
         if self.optimize_phase:
-            result["phases_deg"] = np.rad2deg(
-                x_opt[self.n_pos:self.n_pos + self.n_phase]
+            phase_frac = self._sigmoid(
+                x[self.n_pos:self.n_pos + self.n_phase]
             )
+            result["phases_deg"] = np.rad2deg(phase_frac * TWO_PI)
         elif self.init_phases_deg is not None:
             result["phases_deg"] = self.init_phases_deg
         else:
             result["phases_deg"] = np.zeros_like(pos)
 
-        # 幅度
+        # 幅度: sigmoid → [lb, ub]
         if self.optimize_amplitude:
-            result["amplitudes"] = x_opt[-self.n_amp:]
+            amp_frac = self._sigmoid(x[-self.n_amp:])
+            result["amplitudes"] = self.amplitude_lower + (
+                self.amplitude_upper - self.amplitude_lower
+            ) * amp_frac
         elif self.init_amplitudes is not None:
             result["amplitudes"] = self.init_amplitudes
         else:
@@ -234,65 +204,60 @@ class SparseArrayProblem(Problem):
 def run_optimization(
     mapper: LMMapper,
     pattern: Pattern,
-    pop_size: int = 50,
+    x0: Optional[np.ndarray] = None,
+    sigma0: float = 1.0,
+    pop_size: Optional[int] = None,
     max_iter: int = 10000,
-    sigma: float = 1.0,
     seed: int = 0,
     verbose: bool = True,
-    n_jobs: int = 1,
     **kwargs,
 ) -> dict:
-    """运行 CMA-ES 稀疏阵列优化。
+    """运行 cma (pycma) 无约束 CMA-ES 稀疏阵列优化。
 
     Args:
         mapper: LM 映射器
         pattern: Pattern 方向图计算器
-        pop_size: 种群大小
+        x0: 初始解 (ℝ^n)，None = 全零
+        sigma0: 初始标准差
+        pop_size: 种群大小，None = cma 自适应
         max_iter: 最大迭代次数
-        sigma: 初始步长
         seed: 随机种子，0 = 随机
-        verbose: 是否打印进度
-        n_jobs: 并行线程数，1=单线程，-1=全部 CPU
+        verbose: 打印进度（-9=静默，>0=详细）
+        n_jobs: 并行线程数（评估用 ThreadPool）
         **kwargs: 传给 SparseArrayProblem
 
     Returns:
-        dict: {"X": 最优变量, "F": 最优适应度, "result": 结果字典}
+        dict: {"x": 最优变量, "f": 最优适应度, "result": 结果字典}
     """
     if seed == 0:
         seed = np.random.randint(1, 2**31)
 
-    if n_jobs < 0:
-        n_jobs = os.cpu_count() or 4
-
-    pool = None
     problem = SparseArrayProblem(mapper, pattern, **kwargs)
-    if n_jobs > 1:
-        pool = ThreadPool(n_jobs)
-        problem._pool = pool
+    n_vars = problem.n_vars
 
-    algorithm = CMAES(
-        x0=None,
-        sigma=sigma,
-        pop_size=pop_size,
-    )
+    if x0 is None:
+        x0 = np.zeros(n_vars)
 
-    termination = get_termination("n_eval", max_iter * pop_size)
+    # cma 的 verbose 约定: -9=静默, 0=默认, >0=详细
+    cma_verbose = 0 if verbose else -9
 
-    try:
-        algorithm.setup(problem, seed=seed, verbose=verbose)
-        algorithm.run()
-    finally:
-        if pool is not None:
-            pool.terminate()
+    opts = {
+        "seed": seed,
+        "maxfevals": max_iter * (pop_size or (4 + int(3 * np.log(n_vars)))),
+        "verbose": cma_verbose,
+        "CMA_diagonal": n_vars > 30,
+    }
+    if pop_size is not None:
+        opts["popsize"] = pop_size
 
-    res = algorithm.result()
+    res = cma.fmin(problem.fitness, x0, sigma0, options=opts)
 
-    x_opt = res.X
-    f_opt = float(res.F[0]) if hasattr(res.F, '__len__') else float(res.F)
+    x_opt = res[0]
+    f_opt = res[1]
 
     return {
-        "X": x_opt,
-        "F": f_opt,
+        "x": x_opt,
+        "f": f_opt,
         "seed": seed,
         "result": problem.get_result(x_opt),
     }
