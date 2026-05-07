@@ -278,31 +278,33 @@ def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_j
         n_jobs = os.cpu_count() or 4
 
     cma_verbose = 0 if verbose else -9
+    if pop_size is None:
+        pop_size = 4 + int(3 * np.log(n_vars))
+
     opts = {
         "seed": seed,
-        "maxfevals": max_iter * (pop_size or (4 + int(3 * np.log(n_vars)))),
+        "maxfevals": max_iter * pop_size,
         "verbose": cma_verbose,
         "CMA_diagonal": n_vars > 30,
+        "popsize": pop_size,
     }
-    if pop_size is not None:
-        opts["popsize"] = pop_size
 
-    pool = None
-    if n_jobs > 1:
-        pool = ThreadPool(n_jobs)
-
-        def parallel_obj(candidates):
-            """cma 并行评估接口: 列表输入 → 列表输出"""
-            return pool.map(problem.fitness, candidates)
-
-        opts["parallel_objective"] = parallel_obj
+    es = cma.CMAEvolutionStrategy(x0, sigma0, opts)
+    pool = ThreadPool(n_jobs) if n_jobs > 1 else None
 
     try:
-        res = cma.fmin(problem.fitness, x0, sigma0, options=opts)
+        while not es.stop():
+            X = es.ask()
+            if pool is not None:
+                fits = pool.map(problem.fitness, X)
+            else:
+                fits = [problem.fitness(x) for x in X]
+            es.tell(X, fits)
+        result = es.result
     finally:
         if pool is not None:
             pool.terminate()
-    x_opt, f_opt = res[0], res[1]
+    x_opt, f_opt = result[0], result[1]
     return {"x": x_opt, "f": f_opt, "seed": seed, "method": "cma",
             "result": problem.get_result(x_opt)}
 
