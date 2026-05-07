@@ -63,10 +63,9 @@ class SparseArrayProblem:
         """适应度 = PSLL + HPBW_惩罚。cma.fmin 要求 f(x) 返回标量。"""
         x = np.asarray(x, dtype=float)
 
-        # 1. 位置：sigmoid → LM 映射
+        # 1. 位置：直传 synthesize（内部已有 sigmoid）
         if self.n_pos > 0:
-            pos_vars = self._sigmoid(x[:self.n_pos])
-            pos = self.mapper.synthesize(pos_vars)
+            pos = self.mapper.synthesize(x[:self.n_pos])
         elif self.init_positions is not None:
             pos = self.init_positions
         else:
@@ -168,10 +167,9 @@ class SparseArrayProblem:
         x = np.asarray(x_opt, dtype=float)
         result = {}
 
-        # 位置: sigmoid → LM
+        # 位置: 直传 synthesize（内部已有 sigmoid）
         if self.n_pos > 0:
-            pos_vars = self._sigmoid(x[:self.n_pos])
-            pos = self.mapper.synthesize(pos_vars)
+            pos = self.mapper.synthesize(x[:self.n_pos])
         else:
             pos = self.init_positions
         result["positions"] = pos
