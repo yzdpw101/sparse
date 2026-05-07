@@ -208,21 +208,21 @@ print(f"  耗时: {elapsed:.1f}s")
 print(f"  位置: {np.array2string(pos, precision=3, max_line_width=120)}")
 print(f"  间距: {np.array2string(np.diff(pos), precision=3, max_line_width=120)}")
 
-# 绘图
-fig, ax = plt.subplots(figsize=(10, 5))
+# 方向图: dB 归一化
 theta = pat.theta_deg
-af_db = 20 * np.log10(pattern / pattern.max() + 1e-30)
-title = f"方向图 (f={freqs[0]:.4g}GHz, theta0={theta0s[0]} deg)"
-ax.plot(theta, af_db, linewidth=1.0)
-ax.set_xlabel("theta (deg)")
-ax.set_ylabel("归一化方向图 (dB)")
-ax.set_title(title)
-ax.set_ylim(-50, 3)
-ax.grid(True, alpha=0.3)
-fig_path = HERE / "result" / f"pattern_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-fig.savefig(fig_path, dpi=150, bbox_inches="tight")
-plt.close(fig)
-print(f"  方向图已保存: {fig_path}")
+af_db = Pattern.to_dB(pattern)
+
+# 绘图
+from antopt.analysis import find_peaks, get_psll
+from visualization import plot_pattern_1d
+psll_val, psll_angle = get_psll(af_db, theta)
+values, angles = find_peaks(af_db, theta)
+
+title = f"方向图 (f={freqs[0]:.4g}GHz, theta0={theta0s[0]} deg, PSLL={psll_val:.2f}dB)"
+fig, ax = plt.subplots(figsize=(10, 5))
+plot_pattern_1d(ax, theta, af_db, peaks=(values, angles),
+                psll=(psll_val, psll_angle), title=title)
+plt.show()
 
 # ── 7. 保存结果 ──
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
