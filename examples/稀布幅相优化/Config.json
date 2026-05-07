@@ -10,12 +10,14 @@
   "mode": 201,
   "amplitudeBounds": [0.0, 1.0],
   "targetHPBW": 100.0,
-  "useFe": true,
-  "eGainCsvDirectory": "E:/Documents/南理工/研二下/sparse/examples/稀布幅相优化/input/element_pattern/kty",
-  "eGainDegStep": 0.1,
-  "feIsGain": true,
-  "feInDB": true,
-  "feThetaRange": [-90, 90],
+  "eGain": {
+    "enabled": false,
+    "csvDirectory": "E:/Documents/南理工/研二下/sparse/examples/稀布幅相优化/input/element_pattern/kty",
+    "degStep": 0.1,
+    "isGain": true,
+    "inDB": true,
+    "thetaRange": [-90, 90]
+  },
   "antennaArray": {
     "L_wavelength": 9.744,
     "dmin_wavelength": 0.5,
@@ -26,13 +28,13 @@
   },
   "optimizer": {
     "method": "cma",
-    "cma":    { "pop_size": 10, "max_iter": 10, "sigma": 1.0, "n_jobs": 0, "verbose": true,  "stopFitness": null },
-    "ngopt":  { "pop_size": 50, "max_iter": 10000,                    "n_jobs": 0, "verbose": false, "stopFitness": null },
-    "cma_ng": { "pop_size": 50, "max_iter": 10000,                    "n_jobs": 0, "verbose": false, "stopFitness": null },
+    "cma":    { "pop_size": 10, "max_iter": 100, "sigma": 1.0, "n_jobs": 0, "verbose": true,  "stopFitness": null },
+    "ngopt":  { "pop_size": 100, "max_iter": 300,                    "n_jobs": 0, "verbose": false, "stopFitness": null },
+    "cma_ng": { "pop_size": 100, "max_iter": 300,                    "n_jobs": 0, "verbose": false, "stopFitness": null },
     "de":     { "pop_size": 50, "max_iter": 10000,                    "n_jobs": 0, "verbose": false, "stopFitness": null }
   },
   "import": {
-    "positionsFile": "E:\\Documents\\南理工\\研二下\\sparse\\examples\\稀布幅相优化\\input\\array_config\\uniform_526.json",
+    "positionsFile": "input/array_config/uniform_17.json",
     "phasesFile": null,
     "amplitudesFile": null
   }

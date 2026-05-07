@@ -68,9 +68,13 @@ theta0s = np.array(asp["theta0sDeg"], dtype=float)
 mode = cfg["mode"]
 amp_bounds = tuple(cfg["amplitudeBounds"])
 hpbw_target = cfg.get("targetHPBW", 100.0)
-use_fe = cfg.get("useFe", False)
-fe_dir = cfg.get("eGainCsvDirectory", None)
-fe_deg_step = cfg.get("eGainDegStep", None)
+eg = cfg.get("eGain", {})
+use_egain = eg.get("enabled", False)
+eg_dir = eg.get("csvDirectory", None)
+eg_deg_step = eg.get("degStep", None)
+eg_is_gain = eg.get("isGain", True)
+eg_in_db = eg.get("inDB", False)
+eg_theta_range = tuple(eg.get("thetaRange", (-180.0, 180.0)))
 
 p_mode = (mode // 100) % 10
 h_mode = (mode // 10) % 10
@@ -122,16 +126,16 @@ stop_fitness = opt_params.pop("stopFitness", None)
 
 # 单元方向图: 多频 CSV → Fe = sqrt(gain)
 fe_patterns = None
-if use_fe and fe_dir:
-    fe_path = HERE / fe_dir
-    if fe_path.exists():
+if use_egain and eg_dir:
+    eg_path = HERE / eg_dir
+    if eg_path.exists():
         fe_patterns = ElementPattern.from_hfss_multi_freq(
-            str(fe_path), freqs,
+            str(eg_path), freqs,
             np.arange(theta_start, theta_end + theta_step/2, theta_step),
-            fe_deg_step or 0.01,
-            is_gain=cfg.get("feIsGain", True),
-            in_dB=cfg.get("feInDB", True),
-            input_theta_range=cfg.get("feThetaRange", (-90.0, 90.0)),
+            eg_deg_step or 0.01,
+            is_gain=eg_is_gain,
+            in_dB=eg_in_db,
+            input_theta_range=eg_theta_range,
         )
         print(f"  加载单元方向图: {len(fe_patterns)} 个频率, 每个 {len(fe_patterns[0])} 点")
 
