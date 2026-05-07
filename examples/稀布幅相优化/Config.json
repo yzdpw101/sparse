@@ -7,12 +7,20 @@
     "thetaStepDeg": 0.1,
     "theta0sDeg": [0]
   },
-  "mode": 201,
-  "amplitudeBounds": [0.0, 1.0],
-  "targetHPBW": 100.0,
-  "eGain": {
+  "optimization": {
+    "mode": 100,
+    "amplitudeBounds": [0.0, 1.0],
+    "targetHPBW": null,
+    "mainLobePointingPenalty": true,
+    "import": {
+      "positionsFile": null,
+      "phasesFile": null,
+      "amplitudesFile": null
+    }
+  },
+  "ePattern": {
     "enabled": false,
-    "csvDirectory": "E:/Documents/南理工/研二下/sparse/examples/稀布幅相优化/input/element_pattern/kty",
+    "csvDirectory": "input/element_pattern/kty",
     "degStep": 0.1,
     "isGain": true,
     "inDB": true,
@@ -29,13 +37,8 @@
   "optimizer": {
     "method": "cma",
     "cma":    { "pop_size": 10, "max_iter": 100, "sigma": 1.0, "n_jobs": 0, "verbose": true,  "stopFitness": null },
-    "ngopt":  { "pop_size": 100, "max_iter": 300,                    "n_jobs": 0, "verbose": false, "stopFitness": null },
-    "cma_ng": { "pop_size": 100, "max_iter": 300,                    "n_jobs": 0, "verbose": false, "stopFitness": null },
+    "ngopt":  { "pop_size": 50, "max_iter": 10000,                    "n_jobs": 0, "verbose": false, "stopFitness": null },
+    "cma_ng": { "pop_size": 50, "max_iter": 10000,                    "n_jobs": 0, "verbose": false, "stopFitness": null },
     "de":     { "pop_size": 50, "max_iter": 10000,                    "n_jobs": 0, "verbose": false, "stopFitness": null }
-  },
-  "import": {
-    "positionsFile": "input/array_config/uniform_17.json",
-    "phasesFile": null,
-    "amplitudesFile": null
   }
 }

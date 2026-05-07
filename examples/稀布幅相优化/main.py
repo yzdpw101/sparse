@@ -65,10 +65,15 @@ theta_start = asp.get("thetaStartDeg", -90)
 theta_end = asp.get("thetaEndDeg", 90)
 theta_step = asp["thetaStepDeg"]
 theta0s = np.array(asp["theta0sDeg"], dtype=float)
-mode = cfg["mode"]
-amp_bounds = tuple(cfg["amplitudeBounds"])
-hpbw_target = cfg.get("targetHPBW", 100.0)
-eg = cfg.get("eGain", {})
+optz = cfg["optimization"]
+mode = optz["mode"]
+amp_bounds = tuple(optz["amplitudeBounds"])
+hpbw_target = optz.get("targetHPBW")
+if hpbw_target is None:
+    hpbw_target = 180.0
+use_pointing_penalty = optz.get("mainLobePointingPenalty", True)
+
+eg = cfg.get("ePattern", {})
 use_egain = eg.get("enabled", False)
 eg_dir = eg.get("csvDirectory", None)
 eg_deg_step = eg.get("degStep", None)
@@ -96,7 +101,7 @@ def load_array_key(filename, key):
         data = data[key]
     return np.array(data, dtype=float) if data is not None else None
 
-imp = cfg.get("import", {})
+imp = optz.get("import", {})
 init_pos = load_array_key(imp.get("positionsFile"), "xCenters") if p_mode in (0, 2) else None
 init_phs = load_array_key(imp.get("phasesFile"), "phasesDeg") if h_mode == 2 else None
 init_amp = load_array_key(imp.get("amplitudesFile"), "amplitudes") if a_mode == 2 else None
@@ -185,6 +190,7 @@ problem_opts = dict(
     amplitude_bounds=amp_bounds,
     target_hpbw=hpbw_target,
     element_patterns=fe_patterns,
+    use_pointing_penalty=use_pointing_penalty,
 )
 
 t0 = time.perf_counter()

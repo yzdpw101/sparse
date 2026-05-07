@@ -57,6 +57,7 @@ class SparseArrayProblem:
         target_hpbw: float = 180.0,
         mainlobe_region: Optional[tuple] = None,
         element_patterns: Optional[list] = None,
+        use_pointing_penalty: bool = True,
     ):
         # 解码 mode: 百位=位置, 十位=相位, 个位=幅度
         p_mode = (mode // 100) % 10
@@ -83,6 +84,7 @@ class SparseArrayProblem:
         self.target_hpbw = target_hpbw
         self.mainlobe_region = mainlobe_region
         self.element_patterns = element_patterns
+        self.use_pointing_penalty = use_pointing_penalty
 
         # 变量维度
         self.n_pos = mapper.n_vars if p_mode == 1 else 0
@@ -163,7 +165,7 @@ class SparseArrayProblem:
 
         # 6. 主瓣指向惩罚 (C++ mainBeamPointPunishment)
         pointing_penalty = 0.0
-        if not self.pattern.is_planar:
+        if self.use_pointing_penalty and not self.pattern.is_planar:
             from .analysis import _find_peaks  # 内部: 返回 (indices, values)
             indices, extrema = _find_peaks(af_db)
             # 目标指向对应的索引
