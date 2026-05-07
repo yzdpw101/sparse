@@ -1,16 +1,35 @@
-"""稀布阵列优化器 — 基于 cma (pycma) 无约束 CMA-ES。
+"""稀布阵列优化器 — 支持多种无约束优化算法。
 
 所有优化变量 ∈ ℝ（无约束），通过 sigmoid 映射到目标范围。
 对应 C++ Main.cpp 的 minimizePSLL + getYc 流程。
+
+可用算法:
+  - cma: pycma CMA-ES（参考实现）
+  - ngopt: nevergrad NGOpt（自动选优）
+  - cma_ng: nevergrad CMA
+  - de: nevergrad 差分进化
+  - pso: nevergrad 粒子群
+  - twopointsde: nevergrad TwoPointsDE
 """
 
 from typing import Optional
 import numpy as np
 import cma
+import nevergrad as ng
 
 from .mapping import LMMapper
 from .pattern import Pattern
 from .analysis import get_psll
+
+# nevergrad 算法名 → 优化器类
+_NG_OPTIMIZERS = {
+    "ngopt": ng.optimizers.NGOpt,
+    "cma_ng": ng.optimizers.CMA,
+    "de": ng.optimizers.DE,
+    "pso": ng.optimizers.PSO,
+    "twopointsde": ng.optimizers.TwoPointsDE,
+    "random": ng.optimizers.RandomSearch,
+}
 
 TWO_PI = 2 * np.pi
 _SIGMOID_CLIP = 20.0  # 与 LMMapper 一致
@@ -208,24 +227,31 @@ def run_optimization(
     max_iter: int = 10000,
     seed: int = 0,
     verbose: bool = True,
+    method: str = "cma",
     **kwargs,
 ) -> dict:
-    """运行 cma (pycma) 无约束 CMA-ES 稀疏阵列优化。
+    """运行稀疏阵列优化。
 
     Args:
         mapper: LM 映射器
         pattern: Pattern 方向图计算器
         x0: 初始解 (ℝ^n)，None = 全零
-        sigma0: 初始标准差
-        pop_size: 种群大小，None = cma 自适应
+        sigma0: 初始标准差（仅 method="cma"）
+        pop_size: 种群大小，None = 自适应
         max_iter: 最大迭代次数
         seed: 随机种子，0 = 随机
-        verbose: 打印进度（-9=静默，>0=详细）
-        n_jobs: 并行线程数（评估用 ThreadPool）
+        verbose: 打印进度
+        method: 算法选择
+            - "cma": pycma CMA-ES（参考实现）
+            - "ngopt": nevergrad 自动选优
+            - "cma_ng": nevergrad CMA
+            - "de": nevergrad 差分进化
+            - "pso": nevergrad 粒子群
+            - "twopointsde": nevergrad TwoPointsDE
         **kwargs: 传给 SparseArrayProblem
 
     Returns:
-        dict: {"x": 最优变量, "f": 最优适应度, "result": 结果字典}
+        dict: {"x": 最优变量, "f": 最优适应度, "result": 结果字典, "method": 算法名}
     """
     if seed == 0:
         seed = np.random.randint(1, 2**31)
@@ -233,12 +259,19 @@ def run_optimization(
     problem = SparseArrayProblem(mapper, pattern, **kwargs)
     n_vars = problem.n_vars
 
+    if method == "cma":
+        return _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose)
+    elif method in _NG_OPTIMIZERS:
+        return _run_nevergrad(problem, n_vars, method, pop_size, max_iter, seed, verbose)
+    else:
+        raise ValueError(f"未知 method: {method}, 可用: cma, {list(_NG_OPTIMIZERS)}")
+
+
+def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose):
     if x0 is None:
         x0 = np.zeros(n_vars)
 
-    # cma 的 verbose 约定: -9=静默, 0=默认, >0=详细
     cma_verbose = 0 if verbose else -9
-
     opts = {
         "seed": seed,
         "maxfevals": max_iter * (pop_size or (4 + int(3 * np.log(n_vars)))),
@@ -249,13 +282,28 @@ def run_optimization(
         opts["popsize"] = pop_size
 
     res = cma.fmin(problem.fitness, x0, sigma0, options=opts)
+    x_opt, f_opt = res[0], res[1]
+    return {"x": x_opt, "f": f_opt, "seed": seed, "method": "cma",
+            "result": problem.get_result(x_opt)}
 
-    x_opt = res[0]
-    f_opt = res[1]
 
-    return {
-        "x": x_opt,
-        "f": f_opt,
-        "seed": seed,
-        "result": problem.get_result(x_opt),
-    }
+def _run_nevergrad(problem, n_vars, method, pop_size, max_iter, seed, verbose):
+    budget = max_iter * (pop_size or (4 + int(3 * np.log(n_vars))))
+    # 无界实数变量
+    parametrization = ng.p.Array(shape=(n_vars,))
+
+    OptimizerCls = _NG_OPTIMIZERS[method]
+    optimizer = OptimizerCls(parametrization=parametrization,
+                             budget=budget, num_workers=1)
+
+    # nevergrad 直接传 np.ndarray
+    def _fitness_ng(x):
+        return problem.fitness(np.asarray(x, dtype=float))
+
+    result = optimizer.minimize(_fitness_ng, verbosity=int(verbose))
+
+    x_opt = np.array(result.args[0], dtype=float)
+    f_opt = result.loss if result.loss is not None else problem.fitness(x_opt)
+
+    return {"x": x_opt, "f": f_opt, "seed": seed, "method": method,
+            "result": problem.get_result(x_opt)}
