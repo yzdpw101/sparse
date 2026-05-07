@@ -35,21 +35,9 @@ use_fe = cfg.get("useFe", False)
 fe_dir = cfg.get("eGainCsvDirectory", None)
 fe_deg_step = cfg.get("eGainDegStep", None)
 
-arr = cfg["antennaArray"]
-L = arr["L_wavelength"]
-dmin = arr["dmin_wavelength"]
-dmax = arr.get("dmax_wavelength")
-if dmax is None or dmax <= 0:
-    dmax = None
-Ne = arr["Ne"]
-is_sym = arr.get("isSymmetryArray", False)
-is_fixed = arr.get("isFixedAperture", False)
-
-opt = cfg["optimizer"]
-method = opt["method"]
-opt_params = opt.get(method, {})
-verbose = opt_params.pop("verbose", method != "cma")  # cma 默认 verbose
-stop_fitness = opt_params.pop("stopFitness", None)
+p_mode = (mode // 100) % 10
+h_mode = (mode // 10) % 10
+a_mode = mode % 10
 
 # ── 3. 导入阵元配置（按需） ──
 def load_array_key(filename, key):
@@ -63,19 +51,37 @@ def load_array_key(filename, key):
         raise FileNotFoundError(f"导入文件不存在: {path}")
     with open(path) as f:
         data = json.load(f)
-    # 支持 {"xCenters": [...], ...} 或纯数组
     if isinstance(data, dict) and key in data:
         data = data[key]
     return np.array(data, dtype=float) if data is not None else None
-
-p_mode = (mode // 100) % 10
-h_mode = (mode // 10) % 10
-a_mode = mode % 10
 
 imp = cfg.get("import", {})
 init_pos = load_array_key(imp.get("positionsFile"), "xCenters") if p_mode in (0, 2) else None
 init_phs = load_array_key(imp.get("phasesFile"), "phasesDeg") if h_mode == 2 else None
 init_amp = load_array_key(imp.get("amplitudesFile"), "amplitudes") if a_mode == 2 else None
+
+# 阵元数: 优化位置时从 antennaArray 取, 导入位置时由文件决定
+optimize_pos = (p_mode == 1)
+if optimize_pos:
+    arr = cfg["antennaArray"]
+    Ne = arr["Ne"]
+    L = arr["L_wavelength"]
+    dmin = arr["dmin_wavelength"]
+    dmax = arr.get("dmax_wavelength")
+    if dmax is None or dmax <= 0:
+        dmax = None
+    is_sym = arr.get("isSymmetryArray", False)
+    is_fixed = arr.get("isFixedAperture", False)
+else:
+    Ne = len(init_pos)
+    L = dmin = dmax = None
+    is_sym = is_fixed = False
+
+opt = cfg["optimizer"]
+method = opt["method"]
+opt_params = opt.get(method, {})
+verbose = opt_params.pop("verbose", method != "cma")
+stop_fitness = opt_params.pop("stopFitness", None)
 
 # 单元方向图: 多频 CSV → Fe = sqrt(gain)
 fe_patterns = None
@@ -92,30 +98,30 @@ if use_fe and fe_dir:
         )
         print(f"  加载单元方向图: {len(fe_patterns)} 个频率, 每个 {len(fe_patterns[0])} 点")
 
-# 校验导入数据长度
-if init_pos is not None and len(init_pos) != Ne:
-    raise ValueError(f"导入位置数 ({len(init_pos)}) != Ne ({Ne})")
-if init_phs is not None and len(init_phs) != Ne:
-    raise ValueError(f"导入相位数 ({len(init_phs)}) != Ne ({Ne})")
-if init_amp is not None and len(init_amp) != Ne:
-    raise ValueError(f"导入幅度数 ({len(init_amp)}) != Ne ({Ne})")
-
 # ── 4. 构造 ──
 print(f"=== 稀布幅相优化 ===")
-print(f"  阵列: {Ne}元, 孔径={L}λ, dmin={dmin}λ, 对称={is_sym}")
+if optimize_pos:
+    print(f"  阵列: {Ne}元, 孔径={L}λ, dmin={dmin}λ, 对称={is_sym}")
+else:
+    print(f"  阵列: {Ne}元 (导入位置), 对称={is_sym}")
 print(f"  mode={mode} (位置={'优化' if p_mode==1 else '导入'}, "
       f"相位={['等相位','优化','导入'][h_mode]}, 幅度={['等幅度','优化','导入'][a_mode]})")
 print(f"  频率: {freqs.tolist()} GHz, 扫描角: {theta0s.tolist()} deg")
 print(f"  优化器: {method}, 参数: {opt_params}")
 print(f"  变量维度: ", end="")
 
-mapper = LMMapper(Ne=Ne, L=L, dmin=dmin, dmax=dmax, is_symmetric=is_sym,
-                  is_fixed_aperture=is_fixed)
+if optimize_pos:
+    mapper = LMMapper(Ne=Ne, L=L, dmin=dmin, dmax=dmax, is_symmetric=is_sym,
+                      is_fixed_aperture=is_fixed)
+    n_pos = mapper.n_vars
+else:
+    # 导入位置时不需 LM 映射器, 传一个 dummy (仅提供 Ne/has_center 等属性)
+    mapper = LMMapper(Ne=Ne, L=1.0, dmin=0.5)  # L/dmin 不会被使用
+    n_pos = 0
+
 pat = Pattern(theta_deg_start=theta_start, theta_deg_end=theta_end,
               theta_deg_step=theta_step, theta0s_deg=theta0s,
               frequenciesGHz=freqs)
-
-n_pos = mapper.n_vars if p_mode == 1 else 0
 n_phs = Ne if h_mode == 1 else 0
 n_amp = Ne if a_mode == 1 else 0
 print(f"{n_pos} (位置) + {n_phs} (相位) + {n_amp} (幅度) = {n_pos + n_phs + n_amp}")
@@ -156,7 +162,8 @@ print(f"\n  最优适应度: {result['f']:.4f} dB")
 print(f"  耗时: {elapsed:.1f}s")
 print(f"  位置: {np.array2string(res['positions'], precision=3, max_line_width=120)}")
 print(f"  间距: {np.array2string(np.diff(res['positions']), precision=3, max_line_width=120)}")
-print(f"  孔径: {res['positions'][-1] - res['positions'][0]:.4f} λ")
+if optimize_pos:
+    print(f"  孔径: {res['positions'][-1] - res['positions'][0]:.4f} λ")
 
 # ── 7. 保存结果 ──
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
