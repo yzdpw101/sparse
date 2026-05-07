@@ -65,7 +65,7 @@ theta_start = asp.get("thetaStartDeg", -90)
 theta_end = asp.get("thetaEndDeg", 90)
 theta_step = asp["thetaStepDeg"]
 theta0s = np.array(asp["theta0sDeg"], dtype=float)
-optz = cfg["optimization"]
+optz = cfg["target"]
 mode = optz["mode"]
 amp_bounds = tuple(optz["amplitudeBounds"])
 hpbw_target = optz.get("targetHPBW")

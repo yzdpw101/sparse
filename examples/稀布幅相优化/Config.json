@@ -7,7 +7,7 @@
     "thetaStepDeg": 0.1,
     "theta0sDeg": [0]
   },
-  "optimization": {
+  "target": {
     "mode": 100,
     "amplitudeBounds": [0.0, 1.0],
     "targetHPBW": null,
