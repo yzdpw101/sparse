@@ -23,8 +23,8 @@ SYMMETRIC = True         # 对称
 FIXED_APERTURE = False   # 固定孔径 (已废弃，一般不开启)
 THETA_STEP = 0.1          # θ 步长（度）
 
-POP_SIZE = 100             # 种群大小
-MAX_ITER = 300            # 最大迭代次数
+POP_SIZE = 50             # 种群大小
+MAX_ITER = 50            # 最大迭代次数
 SEED = 41                 # 随机种子
 N_JOBS = -1               # 并行线程数, -1=全部CPU, 1=单线程
 
