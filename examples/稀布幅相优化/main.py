@@ -204,8 +204,6 @@ pattern = _compute_pattern(pos, amps, phases, mapper, pat, fe_patterns)
 
 print(f"\n  最优适应度: {result['f']:.4f} dB")
 print(f"  耗时: {elapsed:.1f}s")
-print(f"  位置: {np.array2string(pos, precision=3, max_line_width=120)}")
-print(f"  间距: {np.array2string(np.diff(pos), precision=3, max_line_width=120)}")
 
 # 方向图: dB 归一化
 theta = pat.theta_deg

@@ -267,7 +267,7 @@ def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_j
 
     opts = {
         "seed": seed, "maxfevals": max_iter * pop_size,
-        "verbose": 0 if verbose else -9,
+        "verbose": 1 if verbose else -9,
         "CMA_diagonal": n_vars > 30, "popsize": pop_size,
     }
     if stop_fitness is not None:
