@@ -12,7 +12,9 @@
   - twopointsde: nevergrad TwoPointsDE
 """
 
+import os
 from typing import Optional
+from multiprocessing.pool import ThreadPool
 import numpy as np
 import cma
 import nevergrad as ng
@@ -228,6 +230,7 @@ def run_optimization(
     seed: int = 0,
     verbose: bool = True,
     method: str = "cma",
+    n_jobs: int = 1,
     **kwargs,
 ) -> dict:
     """运行稀疏阵列优化。
@@ -260,16 +263,19 @@ def run_optimization(
     n_vars = problem.n_vars
 
     if method == "cma":
-        return _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose)
+        return _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_jobs)
     elif method in _NG_OPTIMIZERS:
         return _run_nevergrad(problem, n_vars, method, pop_size, max_iter, seed, verbose)
     else:
         raise ValueError(f"未知 method: {method}, 可用: cma, {list(_NG_OPTIMIZERS)}")
 
 
-def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose):
+def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_jobs=1):
     if x0 is None:
         x0 = np.zeros(n_vars)
+
+    if n_jobs < 0:
+        n_jobs = os.cpu_count() or 4
 
     cma_verbose = 0 if verbose else -9
     opts = {
@@ -281,7 +287,21 @@ def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose):
     if pop_size is not None:
         opts["popsize"] = pop_size
 
-    res = cma.fmin(problem.fitness, x0, sigma0, options=opts)
+    pool = None
+    if n_jobs > 1:
+        pool = ThreadPool(n_jobs)
+
+        def parallel_obj(candidates):
+            """cma 并行评估接口: 列表输入 → 列表输出"""
+            return pool.map(problem.fitness, candidates)
+
+        opts["parallel_objective"] = parallel_obj
+
+    try:
+        res = cma.fmin(problem.fitness, x0, sigma0, options=opts)
+    finally:
+        if pool is not None:
+            pool.terminate()
     x_opt, f_opt = res[0], res[1]
     return {"x": x_opt, "f": f_opt, "seed": seed, "method": "cma",
             "result": problem.get_result(x_opt)}
