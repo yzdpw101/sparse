@@ -265,13 +265,10 @@ def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_j
     if pop_size is None:
         pop_size = 4 + int(3 * np.log(n_vars))
 
-    if isinstance(verbose, bool):
-        cma_verbose = 1 if verbose else -9
-    else:
-        cma_verbose = int(verbose)  # 直传用户指定值
+    show_iter = bool(verbose)
     opts = {
         "seed": seed, "maxfevals": max_iter * pop_size,
-        "verbose": cma_verbose,
+        "verbose": -9,  # cma 自身静默
         "CMA_diagonal": n_vars > 30, "popsize": pop_size,
     }
     if stop_fitness is not None:
@@ -283,6 +280,8 @@ def _run_cma(problem, n_vars, x0, sigma0, pop_size, max_iter, seed, verbose, n_j
             X = es.ask()
             fits = pool.map(problem.fitness, X) if pool else [problem.fitness(xi) for xi in X]
             es.tell(X, fits)
+            if show_iter:
+                print(f"Iter {es.countiter:>4d}  f={es.result[1]:.4e}  sigma={es.sigma:.4f}")
         result = es.result
     finally:
         if pool:

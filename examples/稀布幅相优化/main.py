@@ -117,7 +117,7 @@ else:
 opt = cfg["optimizer"]
 method = opt["method"]
 opt_params = opt.get(method, {})
-verbose = opt_params.pop("verbose", 1 if method == "cma" else False)
+verbose = opt_params.pop("verbose", method == "cma")
 stop_fitness = opt_params.pop("stopFitness", None)
 
 # 单元方向图: 多频 CSV → Fe = sqrt(gain)
