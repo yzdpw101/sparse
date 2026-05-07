@@ -168,35 +168,37 @@ class LMMapper:
 
         if self._has_center:
             hpos[0] = 0.0
+            n_gap = halfNe - 1  # 不含中心固定
             length_remain = halfL - (halfNe - 1) * dmin
         else:
             hpos[0] = dmin / 2.0
+            n_gap = halfNe  # 含第一个间距（hpos[0] 的偏移）
             length_remain = halfL - (halfNe - 0.5) * dmin
 
         if self._is_fixed_aperture:
-            if self._has_center:
-                n_v = halfNe - 2
-                for i in range(n_v):
-                    hpos[i + 1] = hpos[i] + dmin + length_remain * v[i]
-                    length_remain *= (1.0 - v[i])
-                hpos[halfNe - 1] = halfL
-            else:
-                n_v = halfNe - 2
-                for i in range(n_v):
-                    hpos[i + 1] = hpos[i] + dmin + length_remain * v[i]
-                    length_remain *= (1.0 - v[i])
-                hpos[halfNe - 1] = halfL
+            n_gap = halfNe - 2  # 两端固定
+            # 反向分配间隙: v[0]→边缘, v[-1]→中心
+            extras = np.empty(n_gap)
+            temp = length_remain
+            for i in range(n_gap):
+                extras[n_gap - 1 - i] = temp * v[i]
+                temp *= (1.0 - v[i])
+            for i in range(n_gap):
+                hpos[i + 1] = hpos[i] + dmin + extras[i]
+            hpos[halfNe - 1] = halfL
         else:
+            extras = np.empty(n_gap)
+            temp = length_remain
+            for i in range(n_gap):
+                extras[n_gap - 1 - i] = temp * v[i]
+                temp *= (1.0 - v[i])
             if self._has_center:
-                for i in range(halfNe - 1):
-                    hpos[i + 1] = hpos[i] + dmin + length_remain * v[i]
-                    length_remain *= (1.0 - v[i])
+                for i in range(n_gap):
+                    hpos[i + 1] = hpos[i] + dmin + extras[i]
             else:
-                hpos[0] += length_remain * v[0]
-                length_remain *= (1.0 - v[0])
-                for i in range(1, halfNe):
-                    hpos[i] = hpos[i - 1] + dmin + length_remain * v[i]
-                    length_remain *= (1.0 - v[i])
+                hpos[0] += extras[0]
+                for i in range(1, n_gap):
+                    hpos[i] = hpos[i - 1] + dmin + extras[i]
 
         pos = np.empty(self._Ne)
         if self._has_center:
