@@ -158,15 +158,23 @@ def run_space_mapping(
         except np.linalg.LinAlgError:
             B_reg = B + np.eye(n_vars) * 1e-8
             h = np.linalg.solve(B_reg, -f)
+        if verbose:
+            print(f"  Broyden step norm: {np.linalg.norm(h):.4f}")
 
-        # 2) 更新细模型变量 (ℝ^D 无约束)
+        # 2) 更新细模型变量 (ℝ^D 无约束) → HFSS
         Xf_new = Xf + h
         Yf_list = hfss_func(Xf_new)
         fine_psll = _compute_fine_psll(Yf_list)
 
         # 3) 参数提取
+        if verbose:
+            print(f"  PE: CMA-ES ({pop_size}x{pe_max_iter})...", end="", flush=True)
+        t_pe = __import__('time').perf_counter()
         Xe_new = parameter_extraction(Xf_new, Yf_list, mapper, pattern, fe_patterns,
                                        pop_size, pe_max_iter, sigma, seed)
+        if verbose:
+            print(f" done ({__import__('time').perf_counter()-t_pe:.1f}s)")
+
         f_new = Xe_new - Xc_star
 
         # 4) Broyden 更新
@@ -180,7 +188,7 @@ def run_space_mapping(
         history.append({"iter": k, "Xf": Xf_new.copy(), "PSLL": fine_psll, "res_norm": res_norm})
 
         if verbose:
-            print(f"ASM Iter {k}: PSLL={fine_psll:.2f} dB, res_norm={res_norm:.4f}")
+            print(f"  ASM Iter {k}: PSLL={fine_psll:.2f} dB, res_norm={res_norm:.4f}")
 
         Xf = Xf_new
         f = f_new
