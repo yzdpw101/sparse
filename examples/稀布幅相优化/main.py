@@ -20,7 +20,8 @@ from antopt.utils import to_json_flat, load_array_config, compute_pattern
 from antopt.analysis import find_peaks, get_psll
 from visualization import plot_pattern_with_lobes
 
-HERE = Path(__file__).resolve().parent
+# exe 兼容: __file__ 在 PyInstaller 中指向临时目录, 改用工作目录
+HERE = Path(sys.argv[0]).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
 
 # ── 1. 加载配置 ──
 with open(HERE / "Config.json", encoding="utf-8") as f:
