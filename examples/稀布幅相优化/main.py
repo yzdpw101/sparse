@@ -123,9 +123,11 @@ af_db = Pattern.to_dB(pattern)
 
 print(f"\n  最优适应度: {result['f']:.4f} dB, 耗时: {elapsed:.1f}s")
 
-psll_val, psll_angle = get_psll(af_db, pat.theta_deg)
-all_vals, all_angles = find_peaks(af_db, pat.theta_deg)
-plot_pattern_with_lobes(pat.theta_deg, af_db, psll_val, psll_angle,
+# 绘图取第一个子方向图 (多频/多角度时只展示第一个)
+af_db_plot = af_db.reshape(-1, af_db.shape[-1])[0] if af_db.ndim > 1 else af_db
+psll_val, psll_angle = get_psll(af_db_plot, pat.theta_deg)
+all_vals, all_angles = find_peaks(af_db_plot, pat.theta_deg)
+plot_pattern_with_lobes(pat.theta_deg, af_db_plot, psll_val, psll_angle,
                          theta0s[0], all_vals, all_angles,
                          freq_ghz=freqs[0], theta0_deg=theta0s[0])
 
