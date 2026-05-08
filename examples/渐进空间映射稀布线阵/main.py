@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-sys.path.insert(0, str(Path(__file__).resolve() / "script"))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "script"))
 
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np
