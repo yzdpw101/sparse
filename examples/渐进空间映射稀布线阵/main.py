@@ -85,6 +85,7 @@ coarse_result = run_optimization(
     pop_size=cma_cfg["pop_size"], max_iter=cma_cfg["max_iter"],
     sigma0=cma_cfg["sigma"], n_jobs=cma_cfg.get("n_jobs", 0),
     verbose=cma_cfg.get("verbose", True),
+    stop_fitness=cma_cfg.get("stopFitness"),
 )
 Xc_star = coarse_result["x"]
 print(f"  粗模型最优 PSLL: {coarse_result['f']:.4f} dB")
@@ -114,6 +115,7 @@ def hfss_func(Xf_var):
         results_dir=results_dir,
         array_length_wl=cfg["antennaArray"]["L_wavelength"],
         results_phi_sections=[0],   # 线阵仅 phi=0 面
+        theta_start=theta_start, theta_stop=theta_end, theta_step=theta_step,
         run_simulation=hfss_cfg.get("runSimulation", True),
         close_after=hfss_cfg.get("closeAfter", False),
     )
