@@ -1,45 +1,62 @@
 # sparsearray
 
-稀疏/稀布阵列天线优化库 (Sparse Antenna Array Optimization Library)
+稀疏/稀布阵列天线优化库 — Python 实现，支持线阵 & 矩形平面阵。
 
-用于阵列天线稀布优化，覆盖 on-grid thinning 和 off-grid 连续位置优化两种模式，支持多种优化算法和 HFSS 全波验证。
+## 功能
+
+- **方向图计算**: 方向图乘积定理（阵因子 × 单元因子），线阵/平面阵，对称/非对称，多频/多角度
+- **稀布优化**: CMA-ES (pycma) / nevergrad (NGOpt/DE/PSO) 多算法对比，无约束变量 + LM 映射器
+- **幅相联合优化**: mode 三位编码控制位置/相位/幅度优化，支持从 JSON 导入初始配置
+- **单元方向图**: HFSS 导出的多频 CSV 导入（dB/线性，增益/场量自适应）
+- **独立打包**: PyInstaller → 95MB exe，无需安装 Python 环境
 
 ## 安装
 
 ```bash
-pip install sparsearray
+pip install numpy scipy matplotlib cma nevergrad
 ```
 
 ## 快速开始
 
-```python
-import sparsearray as sa
-import numpy as np
-
-# 定义均匀直线阵作为基准
-ula = sa.UniformLinearArray(num_elements=20, spacing=0.5, frequency=10e9)
-
-# 计算阵因子
-af = sa.ArrayFactor(ula)
-theta = np.linspace(-90, 90, 1801)
-pattern = af.compute_af_normalized(theta)
-
-# 分析方向图
-p = sa.Pattern(theta, pattern)
-print(f"MSLL: {p.get_msll():.2f} dB")
-print(f"HPBW: {p.get_hpbw():.2f} deg")
+```bash
+cd examples/线阵稀布幅相优化
+# 修改 Config.json 参数
+python main.py
 ```
 
 ## 目录结构
 
 ```
-sparsearray/
-├── antopt/         # 核心计算 (几何、阵因子、方向图分析)
-├── optimization/   # 优化问题定义 (约束、目标函数)
-├── optimizers/     # 优化算法 (GA, PSO, DE, CMA-ES)
-├── visualization/  # 可视化 (阵列几何、方向图、收敛曲线)
-├── integration/    # 外部工具集成 (HFSS, I/O)
-└── utils/          # 工具函数
+sparse/
+├── antopt/                    # 核心计算代码
+│   ├── pattern.py             # 方向图计算器 (AF + 归一化)
+│   ├── analysis.py            # 方向图分析 (PSLL, 峰值搜索)
+│   ├── mapping.py             # LM 线性映射器
+│   ├── optimizer.py           # 优化器封装 (cma + nevergrad)
+│   ├── element_pattern.py     # 单元方向图 (HFSS CSV 导入)
+│   └── utils.py               # 工具函数 (JSON, 方向图)
+├── visualization/             # 可视化 (1D/2D/3D 方向图)
+├── tests/                     # pytest 测试 (84 tests)
+├── examples/
+│   ├── 线阵稀布幅相优化/       # 完整工程（主入口）
+│   │   ├── Config.json        # 总配置
+│   │   ├── main.py            # 优化主脚本
+│   │   ├── input/             # 导入数据 (array_config/ + element_pattern/)
+│   │   └── result/            # 输出 (optResult.json + figures/)
+│   ├── demo_linear.py         # 线阵 demo
+│   ├── demo_planar.py         # 平面阵 demo
+│   ├── demo_compare.py        # 多算法对比
+│   └── benchmark.py           # 计算性能 benchmark
+├── pyproject.toml
+└── README.md
+```
+
+## C++ 参考
+
+```
+E:\Documents\南理工\阵列天线稀疏\Sparse\
+├── 稀布幅相优化线阵\          # CMA-ES 优化 (Main.cpp)
+└── antopt\                   # C++ 基础库 (Pattern.cpp, Extrema.h)
 ```
 
 ## License

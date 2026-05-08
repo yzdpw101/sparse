@@ -36,3 +36,9 @@ docs/_build/
 result/
 *.csv
 *.npz
+release/sparse_optimizer.exe
+release/sparse_optimizer.spec
+release/README.txt
+/release/
+/sparse_optimizer.*
+examples/线阵稀布幅相优化/release/

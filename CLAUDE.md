@@ -24,11 +24,12 @@ sparse/
 │   ├── demo_linear.py       # 线阵 demo
 │   ├── demo_planar.py       # 平面阵 demo
 │   ├── demo_compare.py      # 多算法对比
-│   └── 稀布幅相优化/         # 完整工程
+│   └── 线阵稀布幅相优化/       # 完整工程（可打包为 exe）
 │       ├── Config.json      # 总配置（仿 C++）
 │       ├── main.py          # 主入口
-│       ├── input/           # 导入数据
-│       └── result/          # 优化结果
+│       ├── input/           # 导入数据 (array_config/ + element_pattern/)
+│       ├── result/          # 优化结果 (JSON + figures/)
+│       └── release/         # PyInstaller 发布 (95MB exe, gitignored)
 ├── pyproject.toml
 └── README.md
 ```
