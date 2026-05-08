@@ -2,8 +2,8 @@
   "script": {
 
     "hfss": {
-      "elementConfigFilePath": "E:/Documents/南理工/研二下/sparse/examples/渐进空间映射稀布线阵/result/Xf.json",
-      "pattern_export_directory": "E:/Documents/南理工/研二下/sparse/examples/渐进空间映射稀布线阵/result/",
+      "elementConfigFilePath": "",
+      "pattern_export_directory": "",
       "project_save_path": "",
       "close_after_simulation": false,
       "run_simulation": true,

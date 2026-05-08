@@ -45,9 +45,6 @@ def run_patch_simulation(
     # 远场导出参数
     results_category: str = "GainTotal",
     results_function: str = "",
-    # results_theta_start: float = -180,
-    # results_theta_stop: float = 180,
-    # results_theta_step: float = 0.1,
     results_phi_sections: list[float] = None,
     excitation_type: str = "LumpedPort",
 ):
@@ -309,137 +306,43 @@ if __name__ == '__main__':
                           encoding="utf-8"))["script"]["hfss"]
     xf = _json.load(open(os.path.join(here, "Xf.json"), encoding="utf-8"))
 
-    # 映射 JSON → 函数参数: camelCase → snake_case
-    def _v(key, default=None):
-        return cfg.get(key, default)
-    out_dir = _v("pattern_export_directory", "") or here
+    out_dir = cfg["pattern_export_directory"] or here
 
     run_patch_simulation(
-        x_centers=xf.get("xCenters", [0.0]),
-        y_centers=xf.get("yCenters", None),
-        magnitudes=xf.get("magnitudes", None),
-        phases_deg=xf.get("phasesDeg", None),
-        frequency_ghz=_v("frequency_GHz", 2.0),
+        x_centers=xf["xCenters"],
+        y_centers=xf.get("yCenters"),
+        magnitudes=xf.get("magnitudes"),
+        phases_deg=xf.get("phasesDeg"),
+        frequency_ghz=cfg["frequency_GHz"],
         results_dir=out_dir,
-        run_simulation=_v("run_simulation", True),
-        close_after=_v("close_after_simulation", False),
-        project_save_path=_v("project_save_path", ""),
-        epsilon_r=_v("epsilon_r", 4.4),
-        patch_length_mm=_v("patchLength_mm", 28.0),
-        patch_height_mm=_v("patchHeight_mm", 0.035),
-        substrate_height_mm=_v("substrateHeight_mm", 1.6),
-        array_width_wl=_v("arrayWidth_wavelength", 0.0),
-        array_length_wl=_v("arrayLength_wavelength", 0.0),
-        array_margin_wl=_v("arrayMargin_wavelength", 0.5),
-        airbox_margin_wl=_v("airboxMargin_wavelength", 0.25),
-        gnd_height_mm=_v("GNDHeight_mm", 0.03),
-        port_radius_mm=_v("portRadius_mm", 1.5),
-        feed_radius_mm=_v("feedRadius_mm", 0.6),
-        l1_mm=_v("L1_mm", 6.7),
-        max_delta_s=_v("InsertSetup_MaxDeltaS", 0.02),
-        max_passes=_v("InsertSetup_MaximumPasses", 50),
-        save_rad_fields_only=_v("InsertSetup_SaveRadFieldsOnly", True),
-        theta_start=_v("ThetaStart_deg", -180),
-        theta_stop=_v("ThetaStop_deg", 180),
-        theta_step=_v("ThetaStep_deg", 0.1),
-        phi_start=_v("PhiStart_deg", 0),
-        phi_stop=_v("PhiStop_deg", 360),
-        phi_step=_v("PhiStep_deg", 1.0),
-        results_category=_v("Results_Category", "GainTotal"),
-        results_function=_v("Results_Function", ""),
-        results_phi_sections=_v("Results_Sections_deg", []),
-        excitation_type=_v("Assign_Excitation_Type", "LumpedPort"),
+        run_simulation=cfg["run_simulation"],
+        close_after=cfg["close_after_simulation"],
+        project_save_path=cfg.get("project_save_path", ""),
+        epsilon_r=cfg["epsilon_r"],
+        patch_length_mm=cfg["patchLength_mm"],
+        patch_height_mm=cfg["patchHeight_mm"],
+        substrate_height_mm=cfg["substrateHeight_mm"],
+        array_width_wl=cfg["arrayWidth_wavelength"],
+        array_length_wl=cfg["arrayLength_wavelength"],
+        array_margin_wl=cfg["arrayMargin_wavelength"],
+        airbox_margin_wl=cfg["airboxMargin_wavelength"],
+        gnd_height_mm=cfg["GNDHeight_mm"],
+        port_radius_mm=cfg["portRadius_mm"],
+        feed_radius_mm=cfg["feedRadius_mm"],
+        l1_mm=cfg["L1_mm"],
+        max_delta_s=cfg["InsertSetup_MaxDeltaS"],
+        max_passes=cfg["InsertSetup_MaximumPasses"],
+        save_rad_fields_only=cfg["InsertSetup_SaveRadFieldsOnly"],
+        theta_start=cfg["ThetaStart_deg"],
+        theta_stop=cfg["ThetaStop_deg"],
+        theta_step=cfg["ThetaStep_deg"],
+        phi_start=cfg["PhiStart_deg"],
+        phi_stop=cfg["PhiStop_deg"],
+        phi_step=cfg["PhiStep_deg"],
+        results_category=cfg["Results_Category"],
+        results_function=cfg.get("Results_Function", ""),
+        results_phi_sections=cfg.get("Results_Sections_deg", []),
+        excitation_type=cfg["Assign_Excitation_Type"],
     )
-#     except json.JSONDecodeError:
-#         print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
-#         return None
-#     except Exception as e:
-#         print(f"读取文件时发生错误：{e}")
-#         return None
 
-# if __name__ == '__main__':
-#     runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
 
-# # 读取 JSON 文件
-# def read_json_file(file_path):
-#     """
-#     读取 JSON 文件并返回其内容
-    
-#     参数:
-#         file_path (str): JSON 文件的路径
-        
-#     返回:
-#         dict: JSON 文件的内容
-#     """
-#     try:
-#         with open(file_path, 'r', encoding='utf-8') as file:
-#             data = json.load(file)
-#             return data
-#     except FileNotFoundError:
-#         print(f"错误：文件未找到 - {file_path}")
-#         return None
-#     except json.JSONDecodeError:
-#         print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
-#         return None
-#     except Exception as e:
-#         print(f"读取文件时发生错误：{e}")
-#         return None
-
-# if __name__ == '__main__':
-#     runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
-
-# # 读取 JSON 文件
-# def read_json_file(file_path):
-#     """
-#     读取 JSON 文件并返回其内容
-    
-#     参数:
-#         file_path (str): JSON 文件的路径
-        
-#     返回:
-#         dict: JSON 文件的内容
-#     """
-#     try:
-#         with open(file_path, 'r', encoding='utf-8') as file:
-#             data = json.load(file)
-#             return data
-#     except FileNotFoundError:
-#         print(f"错误：文件未找到 - {file_path}")
-#         return None
-#     except json.JSONDecodeError:
-#         print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
-#         return None
-#     except Exception as e:
-#         print(f"读取文件时发生错误：{e}")
-#         return None
-
-# if __name__ == '__main__':
-#     runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
-
-# # 读取 JSON 文件
-# def read_json_file(file_path):
-#     """
-#     读取 JSON 文件并返回其内容
-    
-#     参数:
-#         file_path (str): JSON 文件的路径
-        
-#     返回:
-#         dict: JSON 文件的内容
-#     """
-#     try:
-#         with open(file_path, 'r', encoding='utf-8') as file:
-#             data = json.load(file)
-#             return data
-#     except FileNotFoundError:
-#         print(f"错误：文件未找到 - {file_path}")
-#         return None
-#     except json.JSONDecodeError:
-#         print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
-#         return None
-#     except Exception as e:
-#         print(f"读取文件时发生错误：{e}")
-#         return None
-
-# if __name__ == '__main__':
-#     runHFSS()  # 执行 main，此时 greet 已定义
