@@ -339,9 +339,9 @@ if __name__ == '__main__':
         patch_length_mm=cfg["patchLength_mm"],
         array_length_wl=cfg["arrayLength_wavelength"],
         results_dir=out_dir,
-        results_theta_start=rts,
-        results_theta_stop=rte,
-        results_theta_step=rtstep,
+        theta_start=rts,
+        theta_stop=rte,
+        theta_step=rtstep,
         run_simulation=cfg["run_simulation"],
         close_after=cfg["close_after_simulation"],
     )
