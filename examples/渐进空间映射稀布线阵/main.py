@@ -107,25 +107,30 @@ def hfss_func(Xf_var):
         x_centers=x_m.tolist(),
         frequency_ghz=freq_ghz,
         results_dir=results_dir,
+        array_length_wl=cfg["antennaArray"]["L_wavelength"],
         run_simulation=hfss_cfg.get("runSimulation", True),
         close_after=hfss_cfg.get("closeAfter", False),
     )
 
-    # 读取 HFSS 导出的 CSV
+    # 读取 HFSS CSV (theta=-180..180, 第二列为 GainTotal)
     import csv, os
-    category = "GainTotal"
-    csv_path = os.path.join(results_dir, f"({category}).csv")
-    yf = []
+    csv_path = os.path.join(results_dir, "(GainTotal).csv")
+    yf_full = []
     with open(csv_path, "r") as f:
         reader = csv.reader(f)
-        next(reader)  # 跳过标题
+        next(reader, None)  # 跳过标题
         for row in reader:
             if len(row) >= 2:
                 try:
-                    yf.append(float(row[1]))
+                    yf_full.append(float(row[1]))
                 except ValueError:
                     continue
-    return [np.array(yf)]
+    yf_arr = np.array(yf_full)
+    # 切片到粗模型 theta 范围
+    idx_start = int(round((theta_start - (-180.0)) / theta_step))
+    idx_end = idx_start + len(pat.theta_deg)
+    yf_arr = yf_arr[idx_start:idx_end]
+    return [yf_arr]
 
 print(f"\n--- Step 2: 空间映射迭代 ---")
 t0 = time.perf_counter()
