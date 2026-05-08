@@ -129,12 +129,7 @@ def hfss_func(Xf_var):
                     yf_full.append(float(row[1]))
                 except ValueError:
                     continue
-    yf_arr = np.array(yf_full)
-    # 切片到粗模型 theta 范围
-    idx_start = int(round((theta_start - (-180.0)) / theta_step))
-    idx_end = idx_start + len(pat.theta_deg)
-    yf_arr = yf_arr[idx_start:idx_end]
-    return [yf_arr]
+    return [np.array(yf_full)]  # HFSS 已按 theta 范围导出, 无需切片
 
 print(f"\n--- Step 2: 空间映射迭代 ---")
 t0 = time.perf_counter()
