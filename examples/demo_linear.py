@@ -21,13 +21,13 @@ from visualization import plot_pattern_1d, plot_pattern_polar
 
 N_ELEMENTS = 10          # 阵元数
 SPACING = 0.5            # 阵元间距（波长单位）
-SCAN_ANGLE = 0.0         # 波束指向（度），0=法向
+SCAN_ANGLE = 30.0         # 波束指向（度），0=法向
 THETA_START = -90        # 起始角度（度）
 THETA_END = 90           # 终止角度（度）
 THETA_STEP = 0.1         # 角度步长（度）
 
 # 对称模式: True=对称阵列（只传半边位置），False=非对称（传全部位置）
-SYMMETRIC = True
+SYMMETRIC = False
 
 # 幅度加权 (None=均匀, 或传入长度为 N_ELEMENTS 的数组)
 AMPLITUDES = None
@@ -68,6 +68,7 @@ if SYMMETRIC:
     else:
         all_positions = np.concatenate([-half_positions[::-1], half_positions])
 else:
+    positions_full[0] = 1.0
     print(f"阵元位置: {positions_full}")
     print(f"孔径: {positions_full[-1] - positions_full[0]:.4f} λ")
     af = pat.linear_af(positions_full, amplitudes=AMPLITUDES)

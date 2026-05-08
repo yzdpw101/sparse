@@ -19,8 +19,8 @@ from antopt import LMMapper, Pattern, run_optimization
 #  调参区域
 # ═══════════════════════════════════════════════════════════
 
-Ne, L, dmin = 17, 9.744, 0.5
-SYMMETRIC = False
+Ne, L, dmin = 152, 98.5, 0.5
+SYMMETRIC = True
 THETA_STEP = 0.5
 POP_SIZE, MAX_ITER, SEED = 30, 100, 42
 N_JOBS = -1
@@ -51,7 +51,7 @@ def load_json(filename):
 #  运行
 # ═══════════════════════════════════════════════════════════
 
-mapper = LMMapper(Ne=Ne, L=L, dmin=dmin, is_symmetric=SYMMETRIC)
+mapper = LMMapper(Ne=Ne, L=L, dmin=dmin, is_symmetric=SYMMETRIC,is_fixed_aperture=True)
 pat = Pattern(theta_deg_step=THETA_STEP)
 
 # 导入数据（如果文件存在）
