@@ -94,21 +94,19 @@ print(f"  耗时: {time.perf_counter() - t0:.1f}s")
 # ── 6. 空间映射迭代 ──
 pe_cfg = cfg["pe"]["optimizer"]["cma"]
 asm_cfg = cfg["asm"]
-hfss_cfg = cfg["hfss"]
 
-# HFSS 仿真函数
+# HFSS 仿真函数 — 参数写死在 main.py 不暴露到 Config
 def hfss_func(Xf_var):
     """Xf_var (ℝ^D) → 细模型方向图列表 [Yf]"""
     pos = mapper.synthesize(Xf_var)
     lam0 = 299792458.0 / (freq_ghz * 1e9)
     x_m = pos * lam0  # 波长 → 米
-
-    results_dir = str(HERE / hfss_cfg.get("resultsDir", "result"))
+    results_dir = str(HERE / "result")
 
     # 波束指向相位: C++ phasesRad = -wavenumber * wlpos * lambda * sin(theta0)
     scan_phase_deg = -360.0 * pos * np.sin(np.deg2rad(theta0s[0]))
 
-    oDes, oProj, oDesk = run_patch_simulation(
+    run_patch_simulation(
         x_centers=x_m.tolist(),
         phases_deg=scan_phase_deg.tolist(),
         frequency_ghz=freq_ghz,
@@ -116,8 +114,6 @@ def hfss_func(Xf_var):
         array_length_wl=cfg["antennaArray"]["L_wavelength"],
         results_phi_sections=[0],   # 线阵仅 phi=0 面
         theta_start=theta_start, theta_stop=theta_end, theta_step=theta_step,
-        run_simulation=hfss_cfg.get("runSimulation", True),
-        close_after=hfss_cfg.get("closeAfter", False),
     )
 
     # 读取 HFSS CSV (theta=-180..180, 第二列为 GainTotal)

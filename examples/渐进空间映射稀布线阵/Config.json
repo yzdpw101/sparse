@@ -31,22 +31,22 @@
   },
 
   "antennaArray": {
-    "L_wavelength": 16,
+    "L_wavelength": 15.5,
     "dmin_wavelength": 0.5,
     "Ne": 16,
     "isSymmetryArray": false,
-    "isFixedAperture": false
+    "isFixedAperture": true
   },
 
   "coarse": {
     "optimizer": {
-      "cma": { "pop_size": 100, "max_iter": 500, "sigma": 0.3, "n_jobs": 0, "verbose": true, "stopFitness": null }
+      "cma": { "pop_size": 100, "max_iter": 100, "sigma": 1.0, "n_jobs": 0, "verbose": true, "stopFitness": null }
     }
   },
 
   "pe": {
     "optimizer": {
-      "cma": { "pop_size": 100, "max_iter": 200, "sigma": 0.3, "n_jobs": 0, "verbose": false, "stopFitness": null }
+      "cma": { "pop_size": 100, "max_iter": 200, "sigma": 1.0, "n_jobs": 0, "verbose": true, "stopFitness": null }
     }
   },
 
@@ -54,12 +54,5 @@
     "maxIterations": 10,
     "targetFineObj": -30,
     "targetResNorm": 0.001
-  },
-
-  "hfss": {
-    "scriptDir": "script",
-    "resultsDir": "result",
-    "runSimulation": true,
-    "closeAfter": false
   }
 }
