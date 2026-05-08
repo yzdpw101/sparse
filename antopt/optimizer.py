@@ -130,10 +130,12 @@ class SparseArrayProblem:
             af = self.pattern.planar_af(pos, np.zeros_like(pos), amps, phases)
         elif self.mapper.is_symmetric:
             halfNe = self.mapper._halfNe
-            af = self.pattern.linear_af_symmetric(
-                pos[halfNe:], has_center=self.mapper.has_center,
-                amplitudes=amps[halfNe:], phases=phases[halfNe:],
-            )
+            kwargs = dict(has_center=self.mapper.has_center,
+                          amplitudes=amps[halfNe:], phases=phases[halfNe:])
+            if self.mapper.has_center:
+                kwargs["center_amplitude"] = amps[halfNe - 1]
+                kwargs["center_phase"] = phases[halfNe - 1]
+            af = self.pattern.linear_af_symmetric(pos[halfNe:], **kwargs)
         else:
             af = self.pattern.linear_af(pos, amps, phases)
 

@@ -279,16 +279,21 @@ class Pattern:
         has_center: bool = False,
         amplitudes: Optional[np.ndarray] = None,
         phases: Optional[np.ndarray] = None,
+        center_amplitude: float = 1.0,
+        center_phase: float = 0.0,
     ) -> np.ndarray:
         """线阵对称阵因子（关于原点 x→−x 对称）。
 
         AF = Σ 2·A_n·cos(k·x_n·(sinθ−sinθ₀))  (+ center)
+            center = center_amplitude · exp(j·center_phase)
 
         Args:
             half_wl_positions: 半边阵元 x 坐标（x > 0，以 λ₀ 为单位），shape (Nh,)
-            has_center: 是否有中心阵元（x=0，激励 1+0j）
-            amplitudes: 半边激励幅度，shape (Nh,)，None=全 1
-            phases: 半边激励相位（弧度），shape (Nh,)，None=全 0
+            has_center: 是否有中心阵元（x=0）
+            amplitudes: 半边激励幅度，shape (Nh,)，None=全 1（不含中心）
+            phases: 半边激励相位（弧度），shape (Nh,)，None=全 0（不含中心）
+            center_amplitude: 中心阵元幅度，默认 1.0
+            center_phase: 中心阵元相位（弧度），默认 0.0
 
         Returns:
             复数阵因子
@@ -306,6 +311,8 @@ class Pattern:
             if has_amps:
                 exc = amps * exc
 
+        center_exc = center_amplitude * np.exp(1j * center_phase) if has_center else 0j
+
         if self._n_freq == 1:
             k = TWO_PI
             phase = k * np.outer(half_positions, self._delta_sin.reshape(-1))
@@ -321,7 +328,7 @@ class Pattern:
                 af = np.einsum("i,i...->...", exc, 2 * c)
 
             if has_center:
-                af = af + 1.0
+                af = af + center_exc
             return af
 
         # 多频
@@ -340,7 +347,7 @@ class Pattern:
                 af = np.einsum("i,i...->...", exc, 2 * c)
 
             if has_center:
-                af = af + 1.0
+                af = af + center_exc
             afs.append(af)
         return np.array(afs)
 
