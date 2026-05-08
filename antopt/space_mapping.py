@@ -132,6 +132,25 @@ def run_space_mapping(
         dict: {"Xf": 最优细模型变量, "history": [...]}
     """
     n_vars = mapper.n_vars
+    theta = pattern.theta_deg
+
+    # 辅助: 计算粗模型响应 (归一化 dB)
+    def _yc_db(x):
+        pos = mapper.synthesize(x)
+        if pattern.is_planar or not mapper.is_symmetric:
+            af = pattern.linear_af(pos)
+        else:
+            hN = mapper._halfNe
+            af = pattern.linear_af_symmetric(pos[hN:], has_center=mapper.has_center)
+        af_abs = np.abs(af)
+        if fe_patterns is not None:
+            af_abs = af_abs * fe_patterns[0]
+        return 20.0 * np.log10(np.maximum(af_abs, 1e-30) / np.max(af_abs))
+
+    # 细模型 dB
+    def _yf_db(yf):
+        return 10.0 * np.log10(np.maximum(yf, 1e-30) / np.max(yf))
+
     # 初始细模型响应
     Yf_list = hfss_func(Xc_star)
     fine_psll = _compute_fine_psll(Yf_list)
@@ -149,7 +168,10 @@ def run_space_mapping(
     f = Xe - Xc_star  # 残差
     B = np.eye(n_vars)  # Broyden Jacobian
     Xf = Xc_star.copy()
-    history = [{"iter": 0, "Xf": Xf.copy(), "PSLL": fine_psll, "res_norm": float(np.linalg.norm(f))}]
+    history = [{"iter": 0, "Xf": Xf.copy(), "PSLL": fine_psll,
+                "res_norm": float(np.linalg.norm(f)),
+                "yc_db": _yc_db(Xe).tolist(), "yf_db": _yf_db(Yf_list[0]).tolist(),
+                "xe": Xe.tolist()}]
 
     if np.linalg.norm(f) < target_res_norm or fine_psll <= target_obj:
         if verbose:
@@ -190,7 +212,11 @@ def run_space_mapping(
             B += np.outer(y - B @ s, s) / denom
 
         res_norm = float(np.linalg.norm(f_new))
-        history.append({"iter": k, "Xf": Xf_new.copy(), "PSLL": fine_psll, "res_norm": res_norm})
+        history.append({"iter": k, "Xf": Xf_new.copy(), "PSLL": fine_psll,
+                         "res_norm": res_norm,
+                         "yc_db": _yc_db(Xe_new).tolist(),
+                         "yf_db": _yf_db(Yf_list[0]).tolist(),
+                         "xe": Xe_new.tolist()})
 
         if verbose:
             print(f"  ASM Iter {k}: PSLL={fine_psll:.2f} dB, res_norm={res_norm:.4f}")

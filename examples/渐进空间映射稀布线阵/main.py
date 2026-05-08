@@ -106,14 +106,16 @@ def hfss_func(Xf_var):
     # 波束指向相位: C++ phasesRad = -wavenumber * wlpos * lambda * sin(theta0)
     scan_phase_deg = -360.0 * pos * np.sin(np.deg2rad(theta0s[0]))
 
-    run_patch_simulation(
+    _ = run_patch_simulation(
         x_centers=x_m.tolist(),
         phases_deg=scan_phase_deg.tolist(),
         frequency_ghz=freq_ghz,
         results_dir=results_dir,
         array_length_wl=cfg["antennaArray"]["L_wavelength"],
-        results_phi_sections=[0],   # 线阵仅 phi=0 面
+        results_phi_sections=[0],
         theta_start=theta_start, theta_stop=theta_end, theta_step=theta_step,
+        phi_start=0, phi_stop=0, phi_step=1.0,
+        close_after=True,  # 仿真完关闭释放 COM
     )
 
     # 读取 HFSS CSV (theta=-180..180, 第二列为 GainTotal)
@@ -153,11 +155,33 @@ print(f"  最优 PSLL: {best['PSLL']:.2f} dB (iter {best['iter']})")
 print(f"  粗模型 PSLL: {coarse_result['f']:.2f} dB")
 print(f"  总耗时: {elapsed:.1f}s")
 
-# ── 8. 保存 ──
+# ── 7. 保存结果 ──
+import matplotlib.pyplot as plt
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 out_dir = HERE / "result" / ts
 out_dir.mkdir(parents=True, exist_ok=True)
 
+fig_dir = out_dir / "figures"
+fig_dir.mkdir(parents=True, exist_ok=True)
+theta = pat.theta_deg
+for h in asm_result["history"]:
+    k = h["iter"]
+    yc = np.array(h["yc_db"])
+    yf = np.array(h["yf_db"])
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(theta, yc, 'b-', linewidth=1.0, label=f'Coarse (Xe)')
+    ax.plot(theta, yf, 'r--', linewidth=1.0, label=f'Fine (HFSS)')
+    ax.set_xlabel("$\\theta$ (deg)")
+    ax.set_ylabel("Normalized Pattern (dB)")
+    ax.set_title(f"ASM Iter {k}: Coarse vs Fine  (PSLL={h['PSLL']:.2f} dB)")
+    ax.set_ylim(-60, 3)
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig.savefig(fig_dir / f"iter{k:02d}.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+print(f"  方向图已保存: {fig_dir}")
+
+# ── 8. 保存 JSON ──
 out_data = {
     "settings": cfg,
     "coarse": {
