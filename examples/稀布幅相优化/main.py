@@ -123,13 +123,20 @@ af_db = Pattern.to_dB(pattern)
 
 print(f"\n  最优适应度: {result['f']:.4f} dB, 耗时: {elapsed:.1f}s")
 
-# 绘图取第一个子方向图 (多频/多角度时只展示第一个)
-af_db_plot = af_db.reshape(-1, af_db.shape[-1])[0] if af_db.ndim > 1 else af_db
-psll_val, psll_angle = get_psll(af_db_plot, pat.theta_deg)
-all_vals, all_angles = find_peaks(af_db_plot, pat.theta_deg)
-plot_pattern_with_lobes(pat.theta_deg, af_db_plot, psll_val, psll_angle,
-                         theta0s[0], all_vals, all_angles,
-                         freq_ghz=freqs[0], theta0_deg=theta0s[0])
+# 多频/多角度时每个子方向图各画一张
+af_db_flat = af_db.reshape(-1, af_db.shape[-1]) if af_db.ndim > 1 else af_db[None, :]
+n_plots = af_db_flat.shape[0]
+for sub in range(n_plots):
+    af_1d = af_db_flat[sub]
+    scan_idx = sub % len(theta0s)
+    freq_idx = sub // len(theta0s) if len(theta0s) > 0 else 0
+    f_ghz = freqs[freq_idx % len(freqs)]
+    t0 = theta0s[scan_idx]
+    psll_v, psll_a = get_psll(af_1d, pat.theta_deg)
+    all_v, all_a = find_peaks(af_1d, pat.theta_deg)
+    plot_pattern_with_lobes(pat.theta_deg, af_1d, psll_v, psll_a,
+                             t0, all_v, all_a, freq_ghz=f_ghz, theta0_deg=t0)
+plt.show()  # 所有图一次性弹出
 
 # ── 8. 保存结果 ──
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
