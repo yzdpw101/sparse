@@ -61,7 +61,7 @@ def calc_response_error(Yc_list, Yf_list, ignore_db=-45.0):
 
 def parameter_extraction(
     Xf, Yf_list, mapper, pattern, fe_patterns,
-    pop_size=50, max_iter=200, sigma=0.3, seed=0,
+    pop_size=50, max_iter=200, sigma=0.3, seed=0, verbose=False,
 ):
     """CMA-ES 找 Xe 使粗模型响应逼近细模型 (对应 C++ PE)。
 
@@ -94,7 +94,7 @@ def parameter_extraction(
 
     opts = {
         "seed": seed, "popsize": pop_size or (4 + int(3 * np.log(n_vars))),
-        "maxfevals": max_iter * (pop_size or 50), "verbose": -9,
+        "maxfevals": max_iter * (pop_size or 50), "verbose": 1 if verbose else -9,
         "ftarget": 0.001,
     }
     res = cma.fmin(objective, Xf, sigma, opts)
@@ -139,8 +139,13 @@ def run_space_mapping(
         print(f"ASM Iter 0: PSLL={fine_psll:.2f} dB (coarse optimum)")
 
     # PE: 对齐初始响应
+    if verbose:
+        print("  PE (initial):", end="", flush=True)
+    t0 = __import__('time').perf_counter()
     Xe = parameter_extraction(Xc_star, Yf_list, mapper, pattern, fe_patterns,
-                               pop_size, pe_max_iter, sigma, seed)
+                               pop_size, pe_max_iter, sigma, seed, verbose=verbose)
+    if verbose:
+        print(f"  PE done ({__import__('time').perf_counter()-t0:.1f}s), |f|={np.linalg.norm(Xe-Xc_star):.4f}")
     f = Xe - Xc_star  # 残差
     B = np.eye(n_vars)  # Broyden Jacobian
     Xf = Xc_star.copy()
@@ -168,12 +173,12 @@ def run_space_mapping(
 
         # 3) 参数提取
         if verbose:
-            print(f"  PE: CMA-ES ({pop_size}x{pe_max_iter})...", end="", flush=True)
+            print(f"  PE (iter {k}):", end="", flush=True)
         t_pe = __import__('time').perf_counter()
         Xe_new = parameter_extraction(Xf_new, Yf_list, mapper, pattern, fe_patterns,
-                                       pop_size, pe_max_iter, sigma, seed)
+                                       pop_size, pe_max_iter, sigma, seed, verbose=verbose)
         if verbose:
-            print(f" done ({__import__('time').perf_counter()-t_pe:.1f}s)")
+            print(f"  PE done ({__import__('time').perf_counter()-t_pe:.1f}s), |f|={np.linalg.norm(Xe_new-Xc_star):.4f}")
 
         f_new = Xe_new - Xc_star
 
