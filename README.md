@@ -38,15 +38,13 @@ sparse/
 ├── visualization/             # 可视化 (1D/2D/3D 方向图)
 ├── tests/                     # pytest 测试 (84 tests)
 ├── examples/
+│   ├── demos/                 # 各类 demo 脚本
 │   ├── 线阵稀布幅相优化/       # 完整工程（主入口）
 │   │   ├── Config.json        # 总配置
 │   │   ├── main.py            # 优化主脚本
 │   │   ├── input/             # 导入数据 (array_config/ + element_pattern/)
 │   │   └── result/            # 输出 (optResult.json + figures/)
-│   ├── demo_linear.py         # 线阵 demo
-│   ├── demo_planar.py         # 平面阵 demo
-│   ├── demo_compare.py        # 多算法对比
-│   └── benchmark.py           # 计算性能 benchmark
+│   └── 渐进空间映射稀布线阵/    # 空间映射 + HFSS 细模型
 ├── pyproject.toml
 └── README.md
 ```

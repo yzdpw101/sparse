@@ -1,0 +1,47 @@
+{
+  "script": {
+
+    "hfss": {
+      "elementConfigFilePath": "E:\\Documents\\南理工\\阵列天线稀疏\\Sparse\\渐进空间映射稀布线阵\\result\\Xf.json",
+      "pattern_export_directory": "E:\\Documents\\南理工\\阵列天线稀疏\\Sparse\\渐进空间映射稀布线阵\\result\\",
+      "project_save_path": "",
+      "close_after_simulation": false,
+      "run_simulation": true,
+
+      "Results_Category可选的有：rETotal、RealizedGainTotal、GainTotal、dB(GainTotal)": null,
+      "Results_Category": "GainTotal",
+      "Results_Function": "",
+      "Results_Sections_deg": [],
+      "Results_ThetaStart_deg": -180,
+      "Results_ThetaStop_deg": 180,
+      "Results_ThetaStep_deg": 0.1,
+
+      "frequency_GHz": 2,
+      "epsilon_r": 4.4,
+      "patchLength_mm": 28,
+      "patchHeight_mm": 0.035,
+      "arrayWidth_wavelength": 0.0,
+      "arrayLength_wavelength": 0.0,
+      "substrateHeight_mm": 1.6,
+      "arrayMargin_wavelength": 0.5,
+      "airboxMargin_wavelength": 0.25,
+      "GNDHeight_mm": 0.03,
+      "portRadius_mm": 1.5,
+      "feedRadius_mm": 0.6,
+      "L1_mm": 6.7,
+
+      "InsertSetup_MaxDeltaS": 0.02,
+      "InsertSetup_MaximumPasses": 50,
+      "InsertSetup_SaveRadFieldsOnly": true,
+
+      "ThetaStart_deg": -180,
+      "ThetaStop_deg": 180,
+      "ThetaStep_deg": 0.1,
+      "PhiStart_deg": 0,
+      "PhiStop_deg": 360,
+      "PhiStep_deg": 1,
+
+      "Assign_Excitation_Type": "LumpedPort"
+    }
+  }
+}

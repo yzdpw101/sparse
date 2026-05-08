@@ -21,15 +21,18 @@ sparse/
 ├── visualization/           # 可视化
 ├── tests/                   # pytest 测试（84 tests）
 ├── examples/
-│   ├── demo_linear.py       # 线阵 demo
-│   ├── demo_planar.py       # 平面阵 demo
-│   ├── demo_compare.py      # 多算法对比
-│   └── 线阵稀布幅相优化/       # 完整工程（可打包为 exe）
-│       ├── Config.json      # 总配置（仿 C++）
-│       ├── main.py          # 主入口
-│       ├── input/           # 导入数据 (array_config/ + element_pattern/)
-│       ├── result/          # 优化结果 (JSON + figures/)
-│       └── release/         # PyInstaller 发布 (95MB exe, gitignored)
+│   ├── demos/               # 各类 demo 脚本
+│   │   ├── demo_linear.py   # 线阵方向图
+│   │   ├── demo_planar.py   # 平面阵方向图
+│   │   ├── demo_compare.py  # 多算法对比
+│   │   └── benchmark.py     # 计算性能 benchmark
+│   ├── 线阵稀布幅相优化/       # 完整工程（可打包为 exe）
+│   │   ├── Config.json      # 总配置（仿 C++）
+│   │   ├── main.py          # 主入口
+│   │   ├── input/           # 导入数据 (array_config/ + element_pattern/)
+│   │   ├── result/          # 优化结果 (JSON + figures/)
+│   │   └── release/         # PyInstaller 发布 (95MB exe, gitignored)
+│   └── 渐进空间映射稀布线阵/    # 空间映射 + HFSS 细模型
 ├── pyproject.toml
 └── README.md
 ```
