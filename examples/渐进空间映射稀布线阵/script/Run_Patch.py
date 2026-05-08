@@ -23,8 +23,8 @@ def run_patch_simulation(
     patch_length_mm: float = 28.0,
     patch_height_mm: float = 0.035,
     substrate_height_mm: float = 1.6,
-    array_width_wl: float = 0.0,
-    array_length_wl: float = 16.0,
+    array_width_wl: float = 10.0,
+    array_length_wl: float = 0.0,
     array_margin_wl: float = 0.5,
     airbox_margin_wl: float = 0.25,
     gnd_height_mm: float = 0.03,
@@ -35,18 +35,19 @@ def run_patch_simulation(
     max_delta_s: float = 0.02,
     max_passes: int = 50,
     save_rad_fields_only: bool = True,
-    # 远场导出参数
+    # 远场辐射球参数
     theta_start: float = -180,
     theta_stop: float = 180,
     theta_step: float = 0.1,
     phi_start: float = 0,
     phi_stop: float = 360,
     phi_step: float = 1.0,
+    # 远场导出参数
     results_category: str = "GainTotal",
     results_function: str = "",
-    results_theta_start: float = -180,
-    results_theta_stop: float = 180,
-    results_theta_step: float = 0.1,
+    # results_theta_start: float = -180,
+    # results_theta_stop: float = 180,
+    # results_theta_step: float = 0.1,
     results_phi_sections: list[float] = None,
     excitation_type: str = "LumpedPort",
 ):
@@ -62,6 +63,11 @@ def run_patch_simulation(
         run_simulation: True=仿真并导出, False=仅建模
         close_after: 仿真后是否关闭 HFSS
     """
+
+    results_theta_start = theta_start
+    results_theta_stop = theta_stop
+    results_theta_step = theta_step
+
     num_elems = len(x_centers)
     if y_centers is None:
         y_centers = [0.0] * num_elems
@@ -301,17 +307,156 @@ def mkattr(name, color, material, solve_inside=False, transparency=0):
 
 
 if __name__ == '__main__':
-    # 兼容旧用法: 从 Run_Patch_Config.json 读取
+    # 兼容旧用法: 同目录下需有 Run_Patch_Config.json + Xf.json
     import json as _json
-    cfg_path = os.path.join(os.path.dirname(__file__), "Run_Patch_Config.json")
-    cfg = _json.load(open(cfg_path, encoding="utf-8"))["script"]["hfss"]
+    here = os.path.dirname(os.path.abspath(__file__))
+    cfg = _json.load(open(os.path.join(here, "Run_Patch_Config.json"),
+                          encoding="utf-8"))["script"]["hfss"]
+
+    # 读取 Xf.json
+    xf = _json.load(open(os.path.join(here, "Xf.json"), encoding="utf-8"))
+    xc = xf.get("xCenters", [0.0])
+    yc = xf.get("yCenters", None)
+    mag = xf.get("magnitudes", None)
+    phs = xf.get("phasesDeg", None)
+
+    # 导出参数: null 时复用辐射球参数
+    def _or(a, b):
+        return a if a is not None else b
+    rts = _or(cfg.get("Results_ThetaStart_deg"), cfg["ThetaStart_deg"])
+    rte = _or(cfg.get("Results_ThetaStop_deg"), cfg["ThetaStop_deg"])
+    rtstep = _or(cfg.get("Results_ThetaStep_deg"), cfg["ThetaStep_deg"])
+    # pattern_export_directory 为空时 = 当前目录
+    out_dir = cfg.get("pattern_export_directory", "") or here
+
     run_patch_simulation(
-        x_centers=[0.0],
+        x_centers=xc,
+        y_centers=yc,
+        magnitudes=mag,
+        phases_deg=phs,
         frequency_ghz=cfg["frequency_GHz"],
         epsilon_r=cfg["epsilon_r"],
         patch_length_mm=cfg["patchLength_mm"],
         array_length_wl=cfg["arrayLength_wavelength"],
-        results_dir=os.path.abspath(cfg["pattern_export_directory"]),
+        results_dir=out_dir,
+        results_theta_start=rts,
+        results_theta_stop=rte,
+        results_theta_step=rtstep,
         run_simulation=cfg["run_simulation"],
         close_after=cfg["close_after_simulation"],
     )
+
+if __name__ == '__main__':
+    runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
+
+# 读取 JSON 文件
+def read_json_file(file_path):
+    """
+    读取 JSON 文件并返回其内容
+    
+    参数:
+        file_path (str): JSON 文件的路径
+        
+    返回:
+        dict: JSON 文件的内容
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            data = json.load(file)
+            return data
+    except FileNotFoundError:
+        print(f"错误：文件未找到 - {file_path}")
+        return None
+    except json.JSONDecodeError:
+        print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
+        return None
+    except Exception as e:
+        print(f"读取文件时发生错误：{e}")
+        return None
+
+if __name__ == '__main__':
+    runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
+
+# 读取 JSON 文件
+def read_json_file(file_path):
+    """
+    读取 JSON 文件并返回其内容
+    
+    参数:
+        file_path (str): JSON 文件的路径
+        
+    返回:
+        dict: JSON 文件的内容
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            data = json.load(file)
+            return data
+    except FileNotFoundError:
+        print(f"错误：文件未找到 - {file_path}")
+        return None
+    except json.JSONDecodeError:
+        print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
+        return None
+    except Exception as e:
+        print(f"读取文件时发生错误：{e}")
+        return None
+
+if __name__ == '__main__':
+    runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
+
+# 读取 JSON 文件
+def read_json_file(file_path):
+    """
+    读取 JSON 文件并返回其内容
+    
+    参数:
+        file_path (str): JSON 文件的路径
+        
+    返回:
+        dict: JSON 文件的内容
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            data = json.load(file)
+            return data
+    except FileNotFoundError:
+        print(f"错误：文件未找到 - {file_path}")
+        return None
+    except json.JSONDecodeError:
+        print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
+        return None
+    except Exception as e:
+        print(f"读取文件时发生错误：{e}")
+        return None
+
+if __name__ == '__main__':
+    runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
+
+# 读取 JSON 文件
+def read_json_file(file_path):
+    """
+    读取 JSON 文件并返回其内容
+    
+    参数:
+        file_path (str): JSON 文件的路径
+        
+    返回:
+        dict: JSON 文件的内容
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            data = json.load(file)
+            return data
+    except FileNotFoundError:
+        print(f"错误：文件未找到 - {file_path}")
+        return None
+    except json.JSONDecodeError:
+        print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
+        return None
+    except Exception as e:
+        print(f"读取文件时发生错误：{e}")
+        return None
+
+if __name__ == '__main__':
+    runHFSS()  # 执行 main，此时 greet 已定义
