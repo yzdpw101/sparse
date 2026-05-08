@@ -2,8 +2,8 @@
   "script": {
 
     "hfss": {
-      "elementConfigFilePath": "../result/Xf.json",
-      "pattern_export_directory": "../result/",
+      "elementConfigFilePath": "E:/Documents/南理工/研二下/sparse/examples/渐进空间映射稀布线阵/result/Xf.json",
+      "pattern_export_directory": "E:/Documents/南理工/研二下/sparse/examples/渐进空间映射稀布线阵/result/",
       "project_save_path": "",
       "close_after_simulation": false,
       "run_simulation": true,
@@ -12,9 +12,6 @@
       "Results_Category": "GainTotal",
       "Results_Function": "",
       "Results_Sections_deg": [],
-      "Results_ThetaStart_deg": -180,
-      "Results_ThetaStop_deg": 180,
-      "Results_ThetaStep_deg": 0.1,
 
       "frequency_GHz": 2,
       "epsilon_r": 4.4,

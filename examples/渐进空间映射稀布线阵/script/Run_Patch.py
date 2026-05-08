@@ -23,7 +23,7 @@ def run_patch_simulation(
     patch_length_mm: float = 28.0,
     patch_height_mm: float = 0.035,
     substrate_height_mm: float = 1.6,
-    array_width_wl: float = 10.0,
+    array_width_wl: float = 0.0,
     array_length_wl: float = 0.0,
     array_margin_wl: float = 0.5,
     airbox_margin_wl: float = 0.25,
@@ -63,10 +63,6 @@ def run_patch_simulation(
         run_simulation: True=仿真并导出, False=仅建模
         close_after: 仿真后是否关闭 HFSS
     """
-
-    results_theta_start = theta_start
-    results_theta_stop = theta_stop
-    results_theta_step = theta_step
 
     num_elems = len(x_centers)
     if y_centers is None:
@@ -275,8 +271,8 @@ def run_patch_simulation(
 
     try:
         oModule.ExportUniformPointsToFile(report_name, export_path,
-            f"{results_theta_start}deg", f"{results_theta_stop}deg",
-            f"{results_theta_step}deg", True, "", False, True)
+            f"{theta_start}deg", f"{theta_stop}deg",
+            f"{theta_step}deg", True, "", False, True)
         print(f"Exported to {export_path}")
     except Exception as ex:
         print(f"Export error: {ex}")
@@ -307,156 +303,143 @@ def mkattr(name, color, material, solve_inside=False, transparency=0):
 
 
 if __name__ == '__main__':
-    # 兼容旧用法: 同目录下需有 Run_Patch_Config.json + Xf.json
     import json as _json
     here = os.path.dirname(os.path.abspath(__file__))
     cfg = _json.load(open(os.path.join(here, "Run_Patch_Config.json"),
                           encoding="utf-8"))["script"]["hfss"]
-
-    # 读取 Xf.json
     xf = _json.load(open(os.path.join(here, "Xf.json"), encoding="utf-8"))
-    xc = xf.get("xCenters", [0.0])
-    yc = xf.get("yCenters", None)
-    mag = xf.get("magnitudes", None)
-    phs = xf.get("phasesDeg", None)
 
-    # 导出参数: null 时复用辐射球参数
-    def _or(a, b):
-        return a if a is not None else b
-    rts = _or(cfg.get("Results_ThetaStart_deg"), cfg["ThetaStart_deg"])
-    rte = _or(cfg.get("Results_ThetaStop_deg"), cfg["ThetaStop_deg"])
-    rtstep = _or(cfg.get("Results_ThetaStep_deg"), cfg["ThetaStep_deg"])
-    # pattern_export_directory 为空时 = 当前目录
-    out_dir = cfg.get("pattern_export_directory", "") or here
+    # 映射 JSON → 函数参数: camelCase → snake_case
+    def _v(key, default=None):
+        return cfg.get(key, default)
+    out_dir = _v("pattern_export_directory", "") or here
 
     run_patch_simulation(
-        x_centers=xc,
-        y_centers=yc,
-        magnitudes=mag,
-        phases_deg=phs,
-        frequency_ghz=cfg["frequency_GHz"],
-        epsilon_r=cfg["epsilon_r"],
-        patch_length_mm=cfg["patchLength_mm"],
-        array_length_wl=cfg["arrayLength_wavelength"],
+        x_centers=xf.get("xCenters", [0.0]),
+        y_centers=xf.get("yCenters", None),
+        magnitudes=xf.get("magnitudes", None),
+        phases_deg=xf.get("phasesDeg", None),
+        frequency_ghz=_v("frequency_GHz", 2.0),
         results_dir=out_dir,
-        theta_start=rts,
-        theta_stop=rte,
-        theta_step=rtstep,
-        run_simulation=cfg["run_simulation"],
-        close_after=cfg["close_after_simulation"],
+        run_simulation=_v("run_simulation", True),
+        close_after=_v("close_after_simulation", False),
+        project_save_path=_v("project_save_path", ""),
+        epsilon_r=_v("epsilon_r", 4.4),
+        patch_length_mm=_v("patchLength_mm", 28.0),
+        patch_height_mm=_v("patchHeight_mm", 0.035),
+        substrate_height_mm=_v("substrateHeight_mm", 1.6),
+        array_width_wl=_v("arrayWidth_wavelength", 0.0),
+        array_length_wl=_v("arrayLength_wavelength", 0.0),
+        array_margin_wl=_v("arrayMargin_wavelength", 0.5),
+        airbox_margin_wl=_v("airboxMargin_wavelength", 0.25),
+        gnd_height_mm=_v("GNDHeight_mm", 0.03),
+        port_radius_mm=_v("portRadius_mm", 1.5),
+        feed_radius_mm=_v("feedRadius_mm", 0.6),
+        l1_mm=_v("L1_mm", 6.7),
+        max_delta_s=_v("InsertSetup_MaxDeltaS", 0.02),
+        max_passes=_v("InsertSetup_MaximumPasses", 50),
+        save_rad_fields_only=_v("InsertSetup_SaveRadFieldsOnly", True),
+        theta_start=_v("ThetaStart_deg", -180),
+        theta_stop=_v("ThetaStop_deg", 180),
+        theta_step=_v("ThetaStep_deg", 0.1),
+        phi_start=_v("PhiStart_deg", 0),
+        phi_stop=_v("PhiStop_deg", 360),
+        phi_step=_v("PhiStep_deg", 1.0),
+        results_category=_v("Results_Category", "GainTotal"),
+        results_function=_v("Results_Function", ""),
+        results_phi_sections=_v("Results_Sections_deg", []),
+        excitation_type=_v("Assign_Excitation_Type", "LumpedPort"),
     )
+#     except json.JSONDecodeError:
+#         print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
+#         return None
+#     except Exception as e:
+#         print(f"读取文件时发生错误：{e}")
+#         return None
 
-if __name__ == '__main__':
-    runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
+# if __name__ == '__main__':
+#     runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
 
-# 读取 JSON 文件
-def read_json_file(file_path):
-    """
-    读取 JSON 文件并返回其内容
+# # 读取 JSON 文件
+# def read_json_file(file_path):
+#     """
+#     读取 JSON 文件并返回其内容
     
-    参数:
-        file_path (str): JSON 文件的路径
+#     参数:
+#         file_path (str): JSON 文件的路径
         
-    返回:
-        dict: JSON 文件的内容
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-            return data
-    except FileNotFoundError:
-        print(f"错误：文件未找到 - {file_path}")
-        return None
-    except json.JSONDecodeError:
-        print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
-        return None
-    except Exception as e:
-        print(f"读取文件时发生错误：{e}")
-        return None
+#     返回:
+#         dict: JSON 文件的内容
+#     """
+#     try:
+#         with open(file_path, 'r', encoding='utf-8') as file:
+#             data = json.load(file)
+#             return data
+#     except FileNotFoundError:
+#         print(f"错误：文件未找到 - {file_path}")
+#         return None
+#     except json.JSONDecodeError:
+#         print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
+#         return None
+#     except Exception as e:
+#         print(f"读取文件时发生错误：{e}")
+#         return None
 
-if __name__ == '__main__':
-    runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
+# if __name__ == '__main__':
+#     runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
 
-# 读取 JSON 文件
-def read_json_file(file_path):
-    """
-    读取 JSON 文件并返回其内容
+# # 读取 JSON 文件
+# def read_json_file(file_path):
+#     """
+#     读取 JSON 文件并返回其内容
     
-    参数:
-        file_path (str): JSON 文件的路径
+#     参数:
+#         file_path (str): JSON 文件的路径
         
-    返回:
-        dict: JSON 文件的内容
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-            return data
-    except FileNotFoundError:
-        print(f"错误：文件未找到 - {file_path}")
-        return None
-    except json.JSONDecodeError:
-        print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
-        return None
-    except Exception as e:
-        print(f"读取文件时发生错误：{e}")
-        return None
+#     返回:
+#         dict: JSON 文件的内容
+#     """
+#     try:
+#         with open(file_path, 'r', encoding='utf-8') as file:
+#             data = json.load(file)
+#             return data
+#     except FileNotFoundError:
+#         print(f"错误：文件未找到 - {file_path}")
+#         return None
+#     except json.JSONDecodeError:
+#         print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
+#         return None
+#     except Exception as e:
+#         print(f"读取文件时发生错误：{e}")
+#         return None
 
-if __name__ == '__main__':
-    runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
+# if __name__ == '__main__':
+#     runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
 
-# 读取 JSON 文件
-def read_json_file(file_path):
-    """
-    读取 JSON 文件并返回其内容
+# # 读取 JSON 文件
+# def read_json_file(file_path):
+#     """
+#     读取 JSON 文件并返回其内容
     
-    参数:
-        file_path (str): JSON 文件的路径
+#     参数:
+#         file_path (str): JSON 文件的路径
         
-    返回:
-        dict: JSON 文件的内容
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-            return data
-    except FileNotFoundError:
-        print(f"错误：文件未找到 - {file_path}")
-        return None
-    except json.JSONDecodeError:
-        print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
-        return None
-    except Exception as e:
-        print(f"读取文件时发生错误：{e}")
-        return None
+#     返回:
+#         dict: JSON 文件的内容
+#     """
+#     try:
+#         with open(file_path, 'r', encoding='utf-8') as file:
+#             data = json.load(file)
+#             return data
+#     except FileNotFoundError:
+#         print(f"错误：文件未找到 - {file_path}")
+#         return None
+#     except json.JSONDecodeError:
+#         print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
+#         return None
+#     except Exception as e:
+#         print(f"读取文件时发生错误：{e}")
+#         return None
 
-if __name__ == '__main__':
-    runHFSS()  # 执行 main，此时 greet 已定义----------------------------------
-
-# 读取 JSON 文件
-def read_json_file(file_path):
-    """
-    读取 JSON 文件并返回其内容
-    
-    参数:
-        file_path (str): JSON 文件的路径
-        
-    返回:
-        dict: JSON 文件的内容
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-            return data
-    except FileNotFoundError:
-        print(f"错误：文件未找到 - {file_path}")
-        return None
-    except json.JSONDecodeError:
-        print(f"错误：文件不是有效的 JSON 格式 - {file_path}")
-        return None
-    except Exception as e:
-        print(f"读取文件时发生错误：{e}")
-        return None
-
-if __name__ == '__main__':
-    runHFSS()  # 执行 main，此时 greet 已定义
+# if __name__ == '__main__':
+#     runHFSS()  # 执行 main，此时 greet 已定义
