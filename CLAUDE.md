@@ -64,6 +64,20 @@ E:\Documents\南理工\阵列天线稀疏\Sparse\
 
 避免像 cma 4.x 删掉逐代输出这种版本差异导致的问题。
 
+## MCP 科研工具
+
+已安装的 MCP Server（项目级，通过 `claude mcp add`）：
+
+| 工具 | 安装命令 | 用途 |
+|---|---|---|
+| **semantic-scholar-mcp** | `claude mcp add semantic-scholar -- uvx semantic-scholar-mcp` | 2 亿论文搜索 + AI 推荐 + 引文网络 |
+| **arxiv-mcp-server** | `claude mcp add arxiv -- arxiv-mcp-server --storage-path ...` | arXiv 论文搜索/下载/解读 |
+
+用法示例：
+- "搜索 2024-2025 年 sparse array optimization 的 arXiv 论文"
+- "下载论文 2403.15137 并总结核心方法"
+- "这篇论文和哪些其他工作有引用关系？"
+
 ## 测试
 
 ```bash
