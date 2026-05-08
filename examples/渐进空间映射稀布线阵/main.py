@@ -103,11 +103,17 @@ def hfss_func(Xf_var):
     x_m = pos * lam0  # 波长 → 米
 
     results_dir = str(HERE / hfss_cfg.get("resultsDir", "result"))
+
+    # 波束指向相位: C++ phasesRad = -wavenumber * wlpos * lambda * sin(theta0)
+    scan_phase_deg = -360.0 * pos * np.sin(np.deg2rad(theta0s[0]))
+
     oDes, oProj, oDesk = run_patch_simulation(
         x_centers=x_m.tolist(),
+        phases_deg=scan_phase_deg.tolist(),
         frequency_ghz=freq_ghz,
         results_dir=results_dir,
         array_length_wl=cfg["antennaArray"]["L_wavelength"],
+        results_phi_sections=[0],   # 线阵仅 phi=0 面
         run_simulation=hfss_cfg.get("runSimulation", True),
         close_after=hfss_cfg.get("closeAfter", False),
     )
