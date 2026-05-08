@@ -18,6 +18,7 @@ from antopt import LMMapper, Pattern, run_optimization
 from antopt.element_pattern import ElementPattern
 from antopt.utils import load_array_config, compute_pattern, to_json_flat
 from antopt.space_mapping import run_space_mapping
+from Run_Patch import run_patch_simulation
 
 # ── 1. 加载配置 ──
 with open(HERE / "Config.json", encoding="utf-8") as f:
@@ -101,7 +102,6 @@ def hfss_func(Xf_var):
     lam0 = 299792458.0 / (freq_ghz * 1e9)
     x_m = pos * lam0  # 波长 → 米
 
-    from Run_Patch import run_patch_simulation
     results_dir = str(HERE / hfss_cfg.get("resultsDir", "result"))
     oDes, oProj, oDesk = run_patch_simulation(
         x_centers=x_m.tolist(),
