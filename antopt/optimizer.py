@@ -147,39 +147,52 @@ class SparseArrayProblem:
                     af[i] = af_mag[i] * self.element_patterns[i]
         af_db = Pattern.to_dB(af)
 
-        # 5. PSLL
+        # 5. PSLL — 线阵多频/多角度时取各子方向图最差 PSLL
         if self.pattern.is_planar:
             pslls, _ = get_psll(af_db, self.pattern.theta_deg, self.pattern.phi_deg,
                                 mainlobe_region=self.mainlobe_region)
-            if af_db.ndim == 2:
-                valid = ~np.isinf(pslls)
-                psll_val = float(np.max(pslls[valid])) if valid.any() else 0.0
-            else:
-                psll_val = float(pslls)
+            valid = ~np.isinf(pslls)
+            psll_val = float(np.max(pslls[valid])) if valid.any() else 0.0
         else:
             mr_1d = None
             if (isinstance(self.mainlobe_region, tuple) and len(self.mainlobe_region) == 2
                     and isinstance(self.mainlobe_region[0], (int, float, np.floating))):
                 mr_1d = self.mainlobe_region
-            psll_val, _ = get_psll(af_db, self.pattern.theta_deg, mainlobe_region=mr_1d)
+            if af_db.ndim == 1:
+                psll_val, _ = get_psll(af_db, self.pattern.theta_deg, mainlobe_region=mr_1d)
+            else:
+                # 多频/多角度线阵: 展平遍历
+                af_flat = af_db.reshape(-1, af_db.shape[-1])
+                psll_val = -np.inf
+                for sub in range(af_flat.shape[0]):
+                    v, _ = get_psll(af_flat[sub], self.pattern.theta_deg, mainlobe_region=mr_1d)
+                    if not np.isinf(v) and v > psll_val:
+                        psll_val = v
 
         # 6. 主瓣指向惩罚 (C++ mainBeamPointPunishment)
+        #    多频/多角度时遍历每个子方向图取最大惩罚
         pointing_penalty = 0.0
         if self.use_pointing_penalty and not self.pattern.is_planar:
-            from .analysis import _find_peaks  # 内部: 返回 (indices, values)
-            indices, extrema = _find_peaks(af_db)
-            # 目标指向对应的索引
-            target_idx = int(np.argmin(np.abs(self.pattern.theta_deg - self.pattern.theta0s_deg[0])))
-            # 找最接近 0 dB 且最接近目标的峰值 = 主瓣
-            main_idx = indices[0]
-            for j in range(1, len(indices)):
-                if abs(extrema[j]) < 1e-6:
-                    cur = indices[j]
-                    if abs(cur - target_idx) < abs(main_idx - target_idx):
-                        main_idx = cur
-                else:
-                    break
-            pointing_penalty = abs(main_idx - target_idx) * 100.0
+            from .analysis import _find_peaks
+            # 将 af_db 展为 (Nsub, Nθ) 以便遍历
+            af_db_flat = af_db.reshape(-1, af_db.shape[-1])
+            for sub in range(af_db_flat.shape[0]):
+                pattern_1d = af_db_flat[sub]
+                # 该子方向图对应的指向角索引
+                scan_idx = sub % len(self.pattern.theta0s_deg)
+                target_idx = int(np.argmin(
+                    np.abs(self.pattern.theta_deg - self.pattern.theta0s_deg[scan_idx])))
+                indices, extrema = _find_peaks(pattern_1d)
+                main_idx = indices[0]
+                for j in range(1, len(indices)):
+                    if abs(extrema[j]) < 1e-6:
+                        cur = indices[j]
+                        if abs(cur - target_idx) < abs(main_idx - target_idx):
+                            main_idx = cur
+                    else:
+                        break
+                pointing_penalty = max(pointing_penalty,
+                                       abs(main_idx - target_idx) * 100.0)
 
         # 7. HPBW 惩罚
         penalty = 0.0
