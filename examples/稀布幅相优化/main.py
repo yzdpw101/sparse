@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib
 matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
+import matplotlib.pyplot as plt
 
 from antopt import LMMapper, Pattern, run_optimization
 from antopt.element_pattern import ElementPattern
