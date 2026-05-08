@@ -1,0 +1,65 @@
+{
+  "frequencyGHz": 2.45,
+  "randomSeed": 0,
+
+  "aspectAngle": {
+    "thetaStartDeg": -90,
+    "thetaEndDeg": 90,
+    "thetaStepDeg": 0.1,
+    "theta0sDeg": [0]
+  },
+
+  "target": {
+    "mode": 100,
+    "amplitudeBounds": [0.0, 1.0],
+    "targetHPBW": null,
+    "mainLobePointingPenalty": true,
+    "import": {
+      "positionsFile": null,
+      "phasesFile": null,
+      "amplitudesFile": null
+    }
+  },
+
+  "ePattern": {
+    "enabled": false,
+    "csvDirectory": null,
+    "degStep": 0.01,
+    "isGain": true,
+    "inDB": false,
+    "thetaRange": [-180, 180]
+  },
+
+  "antennaArray": {
+    "L_wavelength": 16,
+    "dmin_wavelength": 0.5,
+    "Ne": 16,
+    "isSymmetryArray": false,
+    "isFixedAperture": false
+  },
+
+  "coarse": {
+    "optimizer": {
+      "cma": { "pop_size": 100, "max_iter": 500, "sigma": 0.3, "n_jobs": 0, "verbose": true, "stopFitness": null }
+    }
+  },
+
+  "pe": {
+    "optimizer": {
+      "cma": { "pop_size": 100, "max_iter": 200, "sigma": 0.3, "n_jobs": 0, "verbose": false, "stopFitness": null }
+    }
+  },
+
+  "asm": {
+    "maxIterations": 10,
+    "targetFineObj": -30,
+    "targetResNorm": 0.001
+  },
+
+  "hfss": {
+    "scriptDir": "script",
+    "resultsDir": "result",
+    "runSimulation": true,
+    "closeAfter": false
+  }
+}
