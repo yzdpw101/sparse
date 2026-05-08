@@ -18,8 +18,7 @@ import matplotlib.pyplot as plt
 from antopt import LMMapper, Pattern, run_optimization
 from antopt.element_pattern import ElementPattern
 from antopt.utils import to_json_flat, load_array_config, compute_pattern
-from antopt.analysis import find_peaks, get_psll
-from visualization import plot_pattern_with_lobes
+from antopt.analysis import get_psll
 
 # exe 兼容: __file__ 在 PyInstaller 中指向临时目录, 改用工作目录
 HERE = Path(sys.argv[0]).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
@@ -116,7 +115,7 @@ result = run_optimization(mapper, pat, method=method, seed=cfg["randomSeed"],
     **run_opts)
 elapsed = time.perf_counter() - t0
 
-# ── 7. 方向图 & 绘图 ──
+# ── 7. 方向图 & 保存 ──
 res = result["result"]
 pos, amps = res["positions"], res["amplitudes"]
 pattern = compute_pattern(pos, amps, np.deg2rad(res["phases_deg"]), mapper, pat, fe_patterns)
@@ -124,24 +123,78 @@ af_db = Pattern.to_dB(pattern)
 
 print(f"\n  最优适应度: {result['f']:.4f} dB, 耗时: {elapsed:.1f}s")
 
-# 多频/多角度时每个子方向图各画一张
-af_db_flat = af_db.reshape(-1, af_db.shape[-1]) if af_db.ndim > 1 else af_db[None, :]
-n_plots = af_db_flat.shape[0]
-for sub in range(n_plots):
-    af_1d = af_db_flat[sub]
-    scan_idx = sub % len(theta0s)
-    freq_idx = sub // len(theta0s) if len(theta0s) > 0 else 0
-    f_ghz = freqs[freq_idx % len(freqs)]
-    t0 = theta0s[scan_idx]
-    psll_v, psll_a = get_psll(af_1d, pat.theta_deg)
-    all_v, all_a = find_peaks(af_1d, pat.theta_deg)
-    plot_pattern_with_lobes(pat.theta_deg, af_1d, psll_v, psll_a,
-                             t0, all_v, all_a, freq_ghz=f_ghz, theta0_deg=t0)
-plt.show()  # 所有图一次性弹出
-
-# ── 8. 保存结果 ──
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-out_path = HERE / "result" / f"{ts}.json"
+out_dir = HERE / "result" / ts
+fig_dir = out_dir / "figures"
+n_freq, n_scan = len(freqs), len(theta0s)
+multi = (n_freq > 1 or n_scan > 1)
+
+# 建立子目录
+if multi:
+    (fig_dir / "per_pattern").mkdir(parents=True, exist_ok=True)
+    (fig_dir / "by_freq").mkdir(parents=True, exist_ok=True)
+    (fig_dir / "by_angle").mkdir(parents=True, exist_ok=True)
+else:
+    fig_dir.mkdir(parents=True, exist_ok=True)
+
+af_db_flat = af_db.reshape(-1, af_db.shape[-1]) if af_db.ndim > 1 else af_db[None, :]
+
+# 辅助: 保存单张图到文件
+def _save_fig(filename, title, lines):
+    fig, ax = plt.subplots(figsize=(10, 5))
+    for theta, db, label in lines:
+        ax.plot(theta, db, linewidth=1.0, label=label)
+    ax.set_xlabel("$\\theta$ (deg)")
+    ax.set_ylabel("Normalized Pattern (dB)")
+    ax.set_title(title)
+    ax.set_ylim(-60, 3)
+    ax.grid(True, alpha=0.3)
+    if lines:
+        ax.legend(fontsize=8)
+    fig.savefig(filename, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+# per_pattern: 每个 (freq, angle) 单独一张
+per_info = []
+for sub in range(af_db_flat.shape[0]):
+    scan_idx = sub % n_scan
+    freq_idx = sub // n_scan if n_scan > 0 else 0
+    f_ghz = freqs[freq_idx % n_freq]
+    t0 = theta0s[scan_idx]
+    psll_v, _ = get_psll(af_db_flat[sub], pat.theta_deg)
+    tag = f"f{f_ghz:.4g}GHz_theta{t0:.1f}"
+    per_info.append((f_ghz, t0, af_db_flat[sub], psll_v))
+    label = f"f={f_ghz:.4g}GHz $\\theta_0$={t0:.1f}$^\\circ$"
+    path = (fig_dir / "per_pattern" / f"{tag}.png") if multi else (fig_dir / f"{tag}.png")
+    _save_fig(path, f"Radiation Pattern ({label})  PSLL={psll_v:.2f} dB",
+              [(pat.theta_deg, af_db_flat[sub], label)])
+
+# by_freq: 每个频率下所有角度在一张图
+if multi and n_scan > 1:
+    for fi, f_ghz in enumerate(freqs):
+        lines = []
+        for si, t0 in enumerate(theta0s):
+            sub = fi * n_scan + si
+            lines.append((pat.theta_deg, af_db_flat[sub],
+                          f"$\\theta_0$={t0:.1f}$^\\circ$"))
+        _save_fig(fig_dir / "by_freq" / f"f{f_ghz:.4g}GHz.png",
+                  f"Radiation Patterns @ f={f_ghz:.4g} GHz", lines)
+
+# by_angle: 每个角度下所有频率在一张图
+if multi and n_freq > 1:
+    for si, t0 in enumerate(theta0s):
+        lines = []
+        for fi, f_ghz in enumerate(freqs):
+            sub = fi * n_scan + si
+            lines.append((pat.theta_deg, af_db_flat[sub],
+                          f"f={f_ghz:.4g}GHz"))
+        _save_fig(fig_dir / "by_angle" / f"theta{t0:.1f}deg.png",
+                  f"Radiation Patterns @ $\\theta_0$={t0:.1f}$^\\circ$", lines)
+
+print(f"  图片已保存: {fig_dir}")
+
+# ── 8. 保存 JSON ──
+json_path = out_dir / "optResult.json"
 out_data = {
     "settings": cfg,
     "result": {
@@ -154,6 +207,6 @@ out_data = {
         "thetaDeg": pat.theta_deg.tolist(), "value": pattern.tolist(),
     },
 }
-with open(out_path, "w", encoding="utf-8") as f:
+with open(json_path, "w", encoding="utf-8") as f:
     f.write(to_json_flat(out_data))
-print(f"  结果已保存: {out_path}")
+print(f"  结果已保存: {out_dir}")
