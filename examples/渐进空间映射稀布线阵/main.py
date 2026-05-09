@@ -7,7 +7,6 @@ from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent / "script"))
 
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np
@@ -18,7 +17,7 @@ from antopt import LMMapper, Pattern, run_optimization
 from antopt.element_pattern import ElementPattern
 from antopt.utils import to_json_flat
 from antopt.space_mapping import run_space_mapping
-from Run_Patch import run_patch_simulation
+from script.Run_Patch import run_patch_simulation
 
 # ── 1. 加载配置 ──
 with open(HERE / "Config.json", encoding="utf-8") as f:
