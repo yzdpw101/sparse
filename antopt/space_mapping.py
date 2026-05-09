@@ -93,9 +93,13 @@ def parameter_extraction(
         return calc_response_error(Yc_list, Yf_list)
 
     opts = {
-        "seed": seed, "popsize": pop_size or (4 + int(3 * np.log(n_vars))),
-        "maxfevals": max_iter * (pop_size or 50), "verbose": 1 if verbose else -9,
+        "seed": seed,
+        "popsize": pop_size or (4 + int(3 * np.log(n_vars))),
+        "maxfevals": int(max_iter * (pop_size or 50)),
+        "verbose": 1 if verbose else -9,
         "ftarget": 0.001,
+        "tolfun": 1e-8,
+        "tolx": 1e-8,
     }
     res = cma.fmin(objective, Xf, sigma, opts)
     return np.array(res[0])
