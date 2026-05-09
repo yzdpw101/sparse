@@ -16,7 +16,7 @@ HERE = Path(__file__).resolve().parent
 
 from antopt import LMMapper, Pattern, run_optimization
 from antopt.element_pattern import ElementPattern
-from antopt.utils import load_array_config, compute_pattern, to_json_flat
+from antopt.utils import to_json_flat
 from antopt.space_mapping import run_space_mapping
 from Run_Patch import run_patch_simulation
 
@@ -135,25 +135,30 @@ def hfss_func(Xf_var):
 
 print(f"\n--- Step 2: 空间映射迭代 ---")
 t0 = time.perf_counter()
-asm_result = run_space_mapping(
-    Xc_star, mapper, pat, fe_patterns, hfss_func,
-    max_asm_iter=asm_cfg["maxIterations"],
-    target_obj=asm_cfg["targetFineObj"],
-    target_res_norm=asm_cfg["targetResNorm"],
-    pop_size=pe_cfg["pop_size"],
-    pe_max_iter=pe_cfg["max_iter"],
-    sigma=pe_cfg["sigma"],
-    seed=seed,
-    verbose=True,
-)
+try:
+    asm_result = run_space_mapping(
+        Xc_star, mapper, pat, fe_patterns, hfss_func,
+        max_asm_iter=asm_cfg["maxIterations"],
+        target_obj=asm_cfg["targetFineObj"],
+        target_res_norm=asm_cfg["targetResNorm"],
+        pop_size=pe_cfg["pop_size"],
+        pe_max_iter=pe_cfg["max_iter"],
+        sigma=pe_cfg["sigma"],
+        seed=seed,
+        verbose=True,
+    )
+except Exception as e:
+    print(f"\n  ASM 异常: {e}")
+    # 兜底: 只保存粗模型响应
+    pos = mapper.synthesize(Xc_star)
+    if mapper.is_symmetric:
+        af = pat.linear_af_symmetric(pos[mapper._halfNe:], has_center=mapper.has_center)
+    else:
+        af = pat.linear_af(pos)
+    af_abs = np.abs(af)
+    yc0 = 20.0 * np.log10(np.maximum(af_abs, 1e-30) / np.max(af_abs))
+    asm_result = {"Xf": Xc_star, "history": [], "yc_star_db": yc0.tolist()}
 elapsed = time.perf_counter() - t0
-
-# ── 7. 结果 ──
-best = min(asm_result["history"], key=lambda h: h["PSLL"])
-print(f"\n=== 空间映射完成 ===")
-print(f"  最优 PSLL: {best['PSLL']:.2f} dB (iter {best['iter']})")
-print(f"  粗模型 PSLL: {coarse_result['f']:.2f} dB")
-print(f"  总耗时: {elapsed:.1f}s")
 
 # ── 7. 保存结果 ──
 import matplotlib.pyplot as plt
