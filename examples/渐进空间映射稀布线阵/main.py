@@ -160,6 +160,13 @@ except Exception as e:
     asm_result = {"Xf": Xc_star, "history": [], "yc_star_db": yc0.tolist()}
 elapsed = time.perf_counter() - t0
 
+if asm_result["history"]:
+    best = min(asm_result["history"], key=lambda h: h["PSLL"])
+    print(f"\n=== 空间映射完成 ===")
+    print(f"  最优 PSLL: {best['PSLL']:.2f} dB (iter {best['iter']})")
+else:
+    best = {"PSLL": float("nan"), "iter": 0}
+
 # ── 7. 保存结果 ──
 import matplotlib.pyplot as plt
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -170,6 +177,15 @@ fig_dir = out_dir / "figures"
 fig_dir.mkdir(parents=True, exist_ok=True)
 theta = pat.theta_deg
 yc_star = np.array(asm_result["yc_star_db"])
+# 始终保存粗模型最优方向图
+fig, ax = plt.subplots(figsize=(8, 5))
+ax.plot(theta, yc_star, 'b-', linewidth=1.0)
+ax.set_title(f"Coarse Optimum (PSLL={coarse_result['f']:.2f} dB)")
+ax.set_xlabel("$\\theta$ (deg)"); ax.set_ylabel("Norm. Pattern (dB)")
+ax.set_ylim(-60, 3); ax.grid(True, alpha=0.3)
+fig.savefig(fig_dir / "coarse_optimum.png", dpi=150, bbox_inches="tight")
+plt.close(fig)
+# 每代对比图
 for h in asm_result["history"]:
     k = h["iter"]
     yc_xe = np.array(h["yc_db"])   # PE 响应
