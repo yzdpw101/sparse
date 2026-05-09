@@ -20,7 +20,7 @@ def run_patch_simulation(
     project_save_path: str = "",
     # 贴片/基板参数
     epsilon_r: float = 4.4,
-    patch_length_mm: float = 28.0,
+    patch_length_mm: float = 27.9,
     patch_height_mm: float = 0.035,
     substrate_height_mm: float = 1.6,
     array_width_wl: float = 0.0,
@@ -30,10 +30,10 @@ def run_patch_simulation(
     gnd_height_mm: float = 0.03,
     port_radius_mm: float = 1.5,
     feed_radius_mm: float = 0.6,
-    l1_mm: float = 6.7,
+    l1_mm: float = 7.7,
     # 求解器参数
     max_delta_s: float = 0.02,
-    max_passes: int = 50,
+    max_passes: int = 1,
     save_rad_fields_only: bool = True,
     # 远场辐射球参数
     theta_start: float = -180,
