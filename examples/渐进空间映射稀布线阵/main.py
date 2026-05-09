@@ -164,19 +164,35 @@ out_dir.mkdir(parents=True, exist_ok=True)
 fig_dir = out_dir / "figures"
 fig_dir.mkdir(parents=True, exist_ok=True)
 theta = pat.theta_deg
+yc_star = np.array(asm_result["yc_star_db"])
 for h in asm_result["history"]:
     k = h["iter"]
-    yc = np.array(h["yc_db"])
-    yf = np.array(h["yf_db"])
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(theta, yc, 'b-', linewidth=1.0, label=f'Coarse (Xe)')
-    ax.plot(theta, yf, 'r--', linewidth=1.0, label=f'Fine (HFSS)')
-    ax.set_xlabel("$\\theta$ (deg)")
-    ax.set_ylabel("Normalized Pattern (dB)")
-    ax.set_title(f"ASM Iter {k}: Coarse vs Fine  (PSLL={h['PSLL']:.2f} dB)")
-    ax.set_ylim(-60, 3)
-    ax.grid(True, alpha=0.3)
-    ax.legend()
+    yc_xe = np.array(h["yc_db"])   # PE 响应
+    yf = np.array(h["yf_db"])      # HFSS 响应
+    has_pe = (k >= 1)              # 第一代无 PE
+    ncols = 3 if has_pe else 2
+    fig, axes = plt.subplots(1, ncols, figsize=(5*ncols, 4.5))
+    if not has_pe:
+        axes = [axes[0], axes[1]]  # 2-panel 统一索引
+    # Panel 1: 粗模型最优
+    axes[0].plot(theta, yc_star, 'b-', linewidth=1.0)
+    axes[0].set_title(f"Coarse Optimum (Xc*)")
+    axes[0].set_ylim(-60, 3); axes[0].grid(True, alpha=0.3)
+    # Panel 2: PE (仅 iter≥1)
+    if has_pe:
+        axes[1].plot(theta, yc_xe, 'g-', linewidth=1.0)
+        axes[1].set_title(f"PE (Xe)")
+        axes[1].set_ylim(-60, 3); axes[1].grid(True, alpha=0.3)
+    # Panel 3 (or 2): HFSS
+    ax_fine = axes[-1]
+    ax_fine.plot(theta, yf, 'r-', linewidth=1.0)
+    ax_fine.set_title(f"HFSS Fine (PSLL={h['PSLL']:.2f} dB)")
+    ax_fine.set_ylim(-60, 3); ax_fine.grid(True, alpha=0.3)
+    for ax in (axes if isinstance(axes, list) else [axes]):
+        ax.set_xlabel("$\\theta$ (deg)")
+        ax.set_ylabel("Norm. Pattern (dB)")
+    fig.suptitle(f"ASM Iter {k}", fontweight='bold')
+    fig.tight_layout()
     fig.savefig(fig_dir / f"iter{k:02d}.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 print(f"  方向图已保存: {fig_dir}")

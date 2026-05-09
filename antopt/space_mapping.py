@@ -229,7 +229,8 @@ def run_space_mapping(
                 print("  Converged!")
             break
 
-    return {"Xf": Xf, "history": history}
+    yc_star_db = _yc_db(Xc_star).tolist()
+    return {"Xf": Xf, "history": history, "yc_star_db": yc_star_db}
 
 
 def _compute_fine_psll(Yf_list):
