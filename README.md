@@ -33,6 +33,7 @@ sparse/
 │   ├── analysis.py            # 方向图分析 (PSLL, 峰值搜索)
 │   ├── mapping.py             # LM 线性映射器
 │   ├── optimizer.py           # 优化器封装 (cma + nevergrad)
+│   ├── space_mapping.py       # 渐进空间映射 (PE + Broyden ASM)
 │   ├── element_pattern.py     # 单元方向图 (HFSS CSV 导入)
 │   └── utils.py               # 工具函数 (JSON, 方向图)
 ├── visualization/             # 可视化 (1D/2D/3D 方向图)
@@ -45,6 +46,10 @@ sparse/
 │   │   ├── input/             # 导入数据 (array_config/ + element_pattern/)
 │   │   └── result/            # 输出 (optResult.json + figures/)
 │   └── 渐进空间映射稀布线阵/    # 空间映射 + HFSS 细模型
+│       ├── Config.json        # 总配置 (coarse/pe/asm)
+│       ├── main.py            # 主入口
+│       ├── script/            # HFSS 仿真 (Run_Patch.py)
+│       └── result/            # 输出 (JSON + figures/)
 ├── pyproject.toml
 └── README.md
 ```

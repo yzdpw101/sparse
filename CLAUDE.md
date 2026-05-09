@@ -17,6 +17,7 @@ sparse/
 │   ├── analysis.py          # 方向图分析（PSLL, 峰值搜索）
 │   ├── mapping.py           # LM 线性映射器（[0,1] → 阵元位置）
 │   ├── optimizer.py         # 优化器封装（cma + nevergrad 多算法）
+│   ├── space_mapping.py      # 渐进空间映射 (PE + Broyden ASM)
 │   └── utils.py             # 工具函数（JSON, 方向图计算）
 ├── visualization/           # 可视化
 ├── tests/                   # pytest 测试（84 tests）
@@ -33,6 +34,10 @@ sparse/
 │   │   ├── result/          # 优化结果 (JSON + figures/)
 │   │   └── release/         # PyInstaller 发布 (95MB exe, gitignored)
 │   └── 渐进空间映射稀布线阵/    # 空间映射 + HFSS 细模型
+│       ├── Config.json      # 总配置 (coarse/pe/asm)
+│       ├── main.py          # 主入口
+│       ├── script/          # HFSS 仿真脚本 (Run_Patch.py)
+│       └── result/          # 输出 (JSON + figures/)
 ├── pyproject.toml
 └── README.md
 ```
@@ -45,8 +50,11 @@ E:\Documents\南理工\阵列天线稀疏\Sparse\
 │   ├── src\Main.cpp         # CMA-ES 优化流程 + fitness 函数
 │   ├── include\Main.h       # readFeMultiFreqFromCsvs
 │   └── Config.json
+├── 渐进空间映射稀布线阵\        # 空间映射 + HFSS
+│   └── src\Main2_new.cpp     # ASM + PE + Broyden
 └── antopt\
     ├── src\antenna\Pattern.cpp
+    ├── src\spaceMapping\ASM.cpp  # Broyden ASM 实现
     ├── include\antenna\Pattern.h
     └── include\utils\Extrema.h
 ```
