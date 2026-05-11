@@ -5,7 +5,7 @@ pop_size=60, max_iter=10000, MC=5 种子。
 """
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import time
 import numpy as np

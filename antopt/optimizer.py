@@ -139,19 +139,17 @@ class SparseArrayProblem:
         else:  # _p_mode == 2
             pos = self.init_positions
 
-        # 2. 相位
+        # 2. 相位 — 变量 ∈ [0, 2π], 无 sigmoid
         if self._h_mode == 1:
-            frac = self._sigmoid(x[self.n_pos:self.n_pos + self.n_phase])
-            phases = frac * TWO_PI
+            phases = x[self.n_pos:self.n_pos + self.n_phase]
         elif self._h_mode == 2:
             phases = np.deg2rad(self.init_phases_deg)
         else:
             phases = np.zeros(Ne)
 
-        # 3. 幅度
+        # 3. 幅度 — 变量 ∈ [amp_lower, amp_upper], 无 sigmoid
         if self._a_mode == 1:
-            frac = self._sigmoid(x[-self.n_amp:])
-            amps = self.amplitude_lower + (self.amplitude_upper - self.amplitude_lower) * frac
+            amps = x[-self.n_amp:]
         elif self._a_mode == 2:
             amps = self.init_amplitudes
         else:
@@ -262,16 +260,14 @@ class SparseArrayProblem:
             r["positions"] = self.init_positions
 
         if self._h_mode == 1:
-            frac = self._sigmoid(x[self.n_pos:self.n_pos + self.n_phase])
-            r["phases_deg"] = np.rad2deg(frac * TWO_PI)
+            r["phases_deg"] = np.rad2deg(x[self.n_pos:self.n_pos + self.n_phase])
         elif self._h_mode == 2:
             r["phases_deg"] = self.init_phases_deg
         else:
             r["phases_deg"] = np.zeros_like(r["positions"])
 
         if self._a_mode == 1:
-            frac = self._sigmoid(x[-self.n_amp:])
-            r["amplitudes"] = self.amplitude_lower + (self.amplitude_upper - self.amplitude_lower) * frac
+            r["amplitudes"] = x[-self.n_amp:]
         elif self._a_mode == 2:
             r["amplitudes"] = self.init_amplitudes
         else:

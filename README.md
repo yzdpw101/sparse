@@ -1,66 +1,56 @@
 # sparsearray
 
-稀疏/稀布阵列天线优化库 — Python 实现，支持线阵 & 矩形平面阵。
+稀布/稀疏阵列天线优化库 — Python 实现。
 
 ## 功能
 
-- **方向图计算**: 方向图乘积定理（阵因子 × 单元因子），线阵/平面阵，对称/非对称，多频/多角度
-- **稀布优化**: CMA-ES (pycma) / nevergrad (NGOpt/DE/PSO) 多算法对比，无约束变量 + LM 映射器
-- **幅相联合优化**: mode 三位编码控制位置/相位/幅度优化，支持从 JSON 导入初始配置
-- **单元方向图**: HFSS 导出的多频 CSV 导入（dB/线性，增益/场量自适应）
-- **独立打包**: PyInstaller → 95MB exe，无需安装 Python 环境
+- **方向图计算**: 阵因子 × 单元因子，线阵/平面阵，对称/非对称，多频/多角度
+- **稀布优化**: 自研 CMA-ES（有界 [0,1] + stick-breaking 映射），支持 DE / GWO
+- **幅相联合优化**: mode 三位编码控制位置/相位/幅度，支持 JSON 导入初始配置
+- **单元方向图**: HFSS 导出多频 CSV 导入
+- **断点续跑**: 中断后自动恢复，跑完清理缓存
 
 ## 安装
 
 ```bash
-pip install numpy scipy matplotlib cma nevergrad
+pip install numpy scipy matplotlib cma
 ```
 
 ## 快速开始
 
 ```bash
 cd examples/线阵稀布幅相优化
-# 修改 Config.json 参数
+# 修改 Config.json → 运行
 python main.py
 ```
 
-## 目录结构
+## 目录
 
 ```
 sparse/
-├── antopt/                    # 核心计算代码
-│   ├── pattern.py             # 方向图计算器 (AF + 归一化)
-│   ├── analysis.py            # 方向图分析 (PSLL, 峰值搜索)
-│   ├── mapping.py             # LM 线性映射器
-│   ├── optimizer.py           # 优化器封装 (cma + nevergrad)
-│   ├── space_mapping.py       # 渐进空间映射 (PE + Broyden ASM)
-│   ├── element_pattern.py     # 单元方向图 (HFSS CSV 导入)
-│   └── utils.py               # 工具函数 (JSON, 方向图)
-├── visualization/             # 可视化 (1D/2D/3D 方向图)
-├── tests/                     # pytest 测试 (84 tests)
+├── antopt/                     # 核心库
+│   ├── optimizer.py            # 自研 CMA-ES + DE + GWO (minimize API)
+│   ├── mapping.py              # Stick-breaking 线性映射器
+│   ├── pattern.py              # 方向图计算
+│   ├── analysis.py             # PSLL / 峰值搜索
+│   ├── space_mapping.py        # 渐进空间映射 (⚠ 待修复)
+│   ├── element_pattern.py      # HFSS CSV 单元方向图
+│   └── utils.py
+├── benchmarks/                 # 手动测试/对比脚本
+├── tests/                      # pytest (84 tests)
 ├── examples/
-│   ├── demos/                 # 各类 demo 脚本
-│   ├── 线阵稀布幅相优化/       # 完整工程（主入口）
-│   │   ├── Config.json        # 总配置
-│   │   ├── main.py            # 优化主脚本
-│   │   ├── input/             # 导入数据 (array_config/ + element_pattern/)
-│   │   └── result/            # 输出 (optResult.json + figures/)
-│   └── 渐进空间映射稀布线阵/    # 空间映射 + HFSS 细模型
-│       ├── Config.json        # 总配置 (coarse/pe/asm)
-│       ├── main.py            # 主入口
-│       ├── script/            # HFSS 仿真 (Run_Patch.py)
-│       └── result/            # 输出 (JSON + figures/)
-├── pyproject.toml
-└── README.md
+│   ├── 线阵稀布幅相优化/        # 主工程
+│   └── 渐进空间映射稀布线阵/    # 空间映射 (⚠ PE 收敛待修)
+└── docs/                       # 优化器/映射对比报告
 ```
 
-## C++ 参考
+## 性能 (CMA + stick-breaking, 10000 iter)
 
-```
-E:\Documents\南理工\阵列天线稀疏\Sparse\
-├── 稀布幅相优化线阵\          # CMA-ES 优化 (Main.cpp)
-└── antopt\                   # C++ 基础库 (Pattern.cpp, Extrema.h)
-```
+| 配置 | PSLL |
+|---|---|
+| 78元 / 73λ | -22.96 dB |
+| 132元 / 90.5λ | **-27.02 dB** |
+| 152元 / 98.5λ | -24.41 dB |
 
 ## License
 

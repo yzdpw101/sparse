@@ -60,7 +60,9 @@ if optimize_pos:
     is_fixed = arr.get("isFixedAperture", False)
 else:
     Ne = len(init_pos)
-    L_wl = dmin_wl = None; is_sym = is_fixed = False
+    L_wl = init_pos[-1] - init_pos[0]
+    dmin_wl = min(np.diff(init_pos))
+    is_sym = is_fixed = False
 
 # ── 4. 单元方向图 ──
 fe_patterns = None
@@ -97,11 +99,23 @@ problem = SparseArrayProblem(mapper, pat, mode=mode,
 opt_param = cfg.get("optimizer", {})
 resume_enabled = opt_param.get("resume", False)
 
+# 构建分变量类型边界
+lb = np.empty(problem.n_vars); ub = np.empty(problem.n_vars)
+cur = 0
+if problem.n_pos > 0:
+    lb[:problem.n_pos] = 0.0; ub[:problem.n_pos] = 1.0
+    cur = problem.n_pos
+if problem.n_phase > 0:
+    lb[cur:cur+problem.n_phase] = 0.0; ub[cur:cur+problem.n_phase] = 2 * np.pi
+    cur += problem.n_phase
+if problem.n_amp > 0:
+    lb[cur:] = amp_bounds[0]; ub[cur:] = amp_bounds[1]
+
 t0 = time.perf_counter()
 result = minimize(
     problem.fitness, problem.n_vars,
     method="cma",
-    bounds=(0.0, 1.0),
+    bounds=(lb, ub),
     sigma=opt_param.get("sigma", 0.5),
     pop_size=opt_param.get("pop_size") or None,
     max_iter=opt_param.get("max_iter", 500),
@@ -127,19 +141,29 @@ theta_range = f"θ ∈ [{theta_start}°, {theta_end}°], Δθ = {theta_step}°"
 
 print(f"\n  最优 PSLL: {result['f']:.4f} dB, 耗时: {elapsed:.1f}s")
 
-# ── 9. 保存图片 ──
+# ── 9. 保存图片 + CSV ──
+import csv as _csv
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 out_dir = HERE / "result" / ts
 fig_dir = out_dir / "figures"; fig_dir.mkdir(parents=True, exist_ok=True)
+csv_dir = out_dir / "patterns"; csv_dir.mkdir(parents=True, exist_ok=True)
 n_freq, n_scan = len(freqs), len(theta0s)
 per_dir = fig_dir / "per_pattern"; per_dir.mkdir(exist_ok=True)
 
-# 计算方向图 (对称 / 非对称)
+# 计算方向图 (对称 / 非对称) — 带幅度和相位
+phases_rad = np.deg2rad(phases_deg)
 if mapper.is_symmetric:
     offset = 1 if mapper.has_center else 0
-    af = pat.linear_af_symmetric(pos[mapper._halfNe + offset:], has_center=mapper.has_center)
+    half_pos = pos[mapper._halfNe + offset:]
+    half_amp = amps[mapper._halfNe + offset:]
+    half_phs = phases_rad[mapper._halfNe + offset:]
+    kwargs = dict(has_center=mapper.has_center, amplitudes=half_amp, phases=half_phs)
+    if mapper.has_center:
+        kwargs["center_amplitude"] = amps[mapper._halfNe]
+        kwargs["center_phase"] = phases_rad[mapper._halfNe]
+    af = pat.linear_af_symmetric(half_pos, **kwargs)
 else:
-    af = pat.linear_af(pos)
+    af = pat.linear_af(pos, amps, phases_rad)
 af_db = 20 * np.log10(np.abs(af) / np.max(np.abs(af)))
 af_db_flat = af_db.reshape(-1, af_db.shape[-1]) if af_db.ndim > 1 else af_db[None, :]
 
@@ -171,6 +195,13 @@ for sub in range(af_db_flat.shape[0]):
     ax.set_ylim(-60, 3); ax.grid(True, alpha=0.3)
     fig.savefig(per_dir / fname, dpi=150, bbox_inches="tight")
     plt.close(fig)
+    # 保存 CSV
+    csv_name = fname.replace(".png", ".csv")
+    with open(csv_dir / csv_name, "w", newline="", encoding="utf-8") as cf:
+        w = _csv.writer(cf)
+        w.writerow(["theta_deg", "pattern_dB"])
+        for j in range(len(pat.theta_deg)):
+            w.writerow([pat.theta_deg[j], af_db_flat[sub, j]])
 
 # by_freq: 单频多角度 → 一张图, 多频多角度 → 每频率一张
 if multi_scan:

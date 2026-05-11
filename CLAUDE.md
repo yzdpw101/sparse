@@ -1,97 +1,58 @@
-# sparsearray - 稀布阵列天线优化库
+# sparsearray — 稀布阵列天线优化库
 
 ## 项目概述
 
-Python 实现的稀布/稀疏阵列天线优化库，方向图乘积定理（阵因子 × 单元因子）。
-只做核心计算，优化器用外部库（cma、pymoo 等）。
+Python 稀布/稀疏阵列天线优化库。自研 CMA-ES 优化器 + stick-breaking 映射器。
+优化器外部零依赖（仅 numpy），方向图计算用 numpy 向量化。
 
-## 目录结构
+## 目录
 
 ```
 sparse/
-├── antopt/                  # 核心计算代码
-│   ├── __init__.py
-│   ├── pattern.py           # 方向图计算器（AF 计算 + 归一化）
-│   ├── geometry.py          # 阵列几何定义（Element, LinearArray, PlanarArray）
-│   ├── element_pattern.py   # 单元方向图模型（含 HFSS CSV 导入）
-│   ├── analysis.py          # 方向图分析（PSLL, 峰值搜索）
-│   ├── mapping.py           # LM 线性映射器（[0,1] → 阵元位置）
-│   ├── optimizer.py         # 优化器封装（cma + nevergrad 多算法）
-│   ├── space_mapping.py      # 渐进空间映射 (PE + Broyden ASM)
-│   └── utils.py             # 工具函数（JSON, 方向图计算）
-├── visualization/           # 可视化
-├── tests/                   # pytest 测试（84 tests）
+├── antopt/                     # 核心库
+│   ├── optimizer.py            # 自研 CMA-ES + DE + GWO, minimize() API
+│   ├── mapping.py              # Stick-breaking 映射器 (use_sigmoid 开关)
+│   ├── pattern.py              # AF 计算 + 归一化 (对称/非对称, 多频/多角度)
+│   ├── analysis.py             # PSLL / 峰值搜索 / _find_peaks
+│   ├── space_mapping.py        # 渐进空间映射 (⚠ PE 收敛待修复)
+│   ├── element_pattern.py      # HFSS CSV 单元方向图导入
+│   ├── geometry.py             # Element / LinearArray / PlanarArray
+│   └── utils.py                # JSON / 方向图辅助
+├── benchmarks/                 # 手动对比测试脚本
+├── tests/                      # pytest (84 tests)
 ├── examples/
-│   ├── demos/               # 各类 demo 脚本
-│   │   ├── demo_linear.py   # 线阵方向图
-│   │   ├── demo_planar.py   # 平面阵方向图
-│   │   ├── demo_compare.py  # 多算法对比
-│   │   └── benchmark.py     # 计算性能 benchmark
-│   ├── 线阵稀布幅相优化/       # 完整工程（可打包为 exe）
-│   │   ├── Config.json      # 总配置（仿 C++）
-│   │   ├── main.py          # 主入口
-│   │   ├── input/           # 导入数据 (array_config/ + element_pattern/)
-│   │   ├── result/          # 优化结果 (JSON + figures/)
-│   │   └── release/         # PyInstaller 发布 (95MB exe, gitignored)
-│   └── 渐进空间映射稀布线阵/    # 空间映射 + HFSS 细模型
-│       ├── Config.json      # 总配置 (coarse/pe/asm)
-│       ├── main.py          # 主入口
-│       ├── script/          # HFSS 仿真脚本 (Run_Patch.py)
-│       └── result/          # 输出 (JSON + figures/)
-├── pyproject.toml
-└── README.md
+│   ├── 线阵稀布幅相优化/        # 主工程 (CMA + checkpoint/resume)
+│   └── 渐进空间映射稀布线阵/    # ⚠ PE 不收敛，待修复
+└── docs/                       # 优化器/映射对比文档
 ```
 
-## C++ 参考代码
+## 当前进展
 
-```
-E:\Documents\南理工\阵列天线稀疏\Sparse\
-├── 稀布幅相优化线阵\
-│   ├── src\Main.cpp         # CMA-ES 优化流程 + fitness 函数
-│   ├── include\Main.h       # readFeMultiFreqFromCsvs
-│   └── Config.json
-├── 渐进空间映射稀布线阵\        # 空间映射 + HFSS
-│   └── src\Main2_new.cpp     # ASM + PE + Broyden
-└── antopt\
-    ├── src\antenna\Pattern.cpp
-    ├── src\spaceMapping\ASM.cpp  # Broyden ASM 实现
-    ├── include\antenna\Pattern.h
-    └── include\utils\Extrema.h
-```
+- **optimizer.py**: 完全自研，`minimize(f, n_vars, method="cma", ...)` 统一入口
+  - CMA-ES: C++ 风格，有界 [0,1] / 无界均可，Tent 混沌初始，ThreadPool 并行
+  - 支持 checkpoint/resume 断点续跑
+  - 已删 pycma(除 space_mapping)/nevergrad 依赖
+- **mapping.py**: Stick-breaking 映射，约束天然满足
+  - `_halfNe = Ne//2` (去中心占位 bug 已修)
+  - `use_sigmoid=False` → clamp [0,1]；`use_sigmoid=True` → sigmoid ℝ→(0,1)
+- **有界 > 无界**: 全场景下 bounded [0,1] 优于 unbounded sigmoid (位置 +0.5dB, 幅度 +29dB)
+- **132元/90.5λ** 达到 -27.02 dB (超过论文 DMDE -25.49)
+- **空间映射**: PE CMA-ES 配合粗/细模型误差函数不收敛，待研究
 
 ## 开发约定
 
 - Python 3.10+, NumPy 核心依赖
-- 预计算优先：构造时算好常量，计算时只传变化量
-- 测试用 pytest
-- 代码注释用中文，标识符和 API 用英文
-- 所有优化变量 ∈ ℝ 无约束，通过 sigmoid 映射到目标范围
-
-## 开发前查文档
-
-添加新依赖或实现新功能前，用以下工具查最新文档：
-
-1. **Context7** — 查库/SDK/框架最新 API 用法
-2. **Firecrawl** — 联网搜索技术方案和最新实现
-
-避免像 cma 4.x 删掉逐代输出这种版本差异导致的问题。
-
-## MCP 科研工具
-
-已安装的 MCP Server（项目级，通过 `claude mcp add`）：
-
-| 工具 | 安装命令 | 用途 |
-|---|---|---|
-| **semantic-scholar-mcp** | `claude mcp add semantic-scholar -- uvx semantic-scholar-mcp` | 2 亿论文搜索 + AI 推荐 + 引文网络 |
-| **arxiv-mcp-server** | `claude mcp add arxiv -- arxiv-mcp-server --storage-path ...` | arXiv 论文搜索/下载/解读 |
-
-用法示例：
-- "搜索 2024-2025 年 sparse array optimization 的 arXiv 论文"
-- "下载论文 2403.15137 并总结核心方法"
-- "这篇论文和哪些其他工作有引用关系？"
+- 预计算优先，测试用 pytest
+- 优化器: 默认无约束 (bounds=None), 有界用 `bounds=(lb, ub)`
+- 幅度/相位变量不再过 sigmoid，直接用有界优化
 
 ## 测试
 
 ```bash
-python -m pytest tests/ -v
+python -m pytest tests/ -v      # 84 tests
+python benchmarks/optimizer2_132.py  # 132元 CMA 验证
 ```
+
+## C++ 参考
+
+`E:\Documents\南理工\阵列天线稀疏\Sparse\`
