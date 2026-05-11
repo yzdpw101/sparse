@@ -1,6 +1,6 @@
-"""稀布幅相优化主脚本 — 仿 C++ Main.cpp 流程。
+"""稀布幅相优化主脚本 — CMA 约束优化 + 断点续跑。
 
-用法: cd examples/稀布幅相优化 && python main.py
+用法: cd examples/线阵稀布幅相优化 && python main.py
 """
 import sys, json, time
 from pathlib import Path
@@ -15,19 +15,19 @@ matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu S
 matplotlib.rcParams['axes.unicode_minus'] = False
 import matplotlib.pyplot as plt
 
-from antopt import LMMapper, Pattern, run_optimization
+from antopt import LMMapper, Pattern, minimize, SparseArrayProblem, get_psll
 from antopt.element_pattern import ElementPattern
-from antopt.utils import to_json_flat, load_array_config, compute_pattern
-from antopt.analysis import get_psll
+from antopt.utils import to_json_flat, load_array_config
 
-# exe 兼容: __file__ 在 PyInstaller 中指向临时目录, 改用工作目录
+# exe 兼容
 HERE = Path(sys.argv[0]).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+CKPT_FILE = HERE / ".checkpoint.json"
+
 
 # ── 1. 加载配置 ──
 with open(HERE / "Config.json", encoding="utf-8") as f:
     cfg = json.load(f)
 
-# ── 2. 解析参数 ──
 freqs = np.array(cfg["frequenciesGHz"], dtype=float)
 asp = cfg["aspectAngle"]
 theta_start = asp.get("thetaStartDeg", -90); theta_end = asp.get("thetaEndDeg", 90)
@@ -39,30 +39,28 @@ mode = optz["mode"]
 amp_bounds = tuple(optz["amplitudeBounds"])
 hpbw_target = optz.get("targetHPBW") or 180.0
 use_pt_penalty = optz.get("mainLobePointingPenalty", True)
-
 p_mode = (mode // 100) % 10; h_mode = (mode // 10) % 10; a_mode = mode % 10
 
-# ── 3. 导入数据 ──
+# ── 2. 导入数据 ──
 imp = optz.get("import", {})
 init_pos = load_array_config(imp.get("positionsFile"), "xCenters", HERE) if p_mode in (0, 2) else None
 init_phs = load_array_config(imp.get("phasesFile"), "phasesDeg", HERE) if h_mode == 2 else None
 init_amp = load_array_config(imp.get("amplitudesFile"), "amplitudes", HERE) if a_mode == 2 else None
-
-# 导入的绝对位置 (m) → 波长数 (λ₀ = c / f₀)
 if init_pos is not None:
     lam0 = 299792458.0 / (freqs[0] * 1e9)
     init_pos = init_pos / lam0
 
 optimize_pos = (p_mode == 1)
+
+# ── 3. 阵列 ──
 if optimize_pos:
     arr = cfg["antennaArray"]
-    Ne, L, dmin = arr["Ne"], arr["L_wavelength"], arr["dmin_wavelength"]
-    dmax = arr.get("dmax_wavelength"); dmax = None if (dmax is None or dmax <= 0) else dmax
+    Ne, L_wl, dmin_wl = arr["Ne"], arr["L_wavelength"], arr["dmin_wavelength"]
     is_sym = arr.get("isSymmetryArray", False)
     is_fixed = arr.get("isFixedAperture", False)
 else:
     Ne = len(init_pos)
-    L = dmin = dmax = None; is_sym = is_fixed = False
+    L_wl = dmin_wl = None; is_sym = is_fixed = False
 
 # ── 4. 单元方向图 ──
 fe_patterns = None
@@ -79,134 +77,148 @@ if eg.get("enabled") and eg.get("csvDirectory"):
         )
         print(f"  加载单元方向图: {len(fe_patterns)} 个频率")
 
-# ── 5. 构造 ──
-opt = cfg["optimizer"]
-method = opt["method"]
-opt_params = opt.get(method, {}).copy()
-verbose = opt_params.pop("verbose", method == "cma")
-stop_fitness = opt_params.pop("stopFitness", None)
-
-print(f"=== 稀布幅相优化 ===")
-print(f"  阵列: {Ne}元" + (f", 孔径={L}λ, dmin={dmin}λ, 对称={is_sym}" if optimize_pos else " (导入位置)"))
-print(f"  mode={mode}, 频率={freqs.tolist()} GHz, 指向角={theta0s.tolist()} deg, 优化器={method}")
-
-if optimize_pos:
-    mapper = LMMapper(Ne=Ne, L=L, dmin=dmin, dmax=dmax, is_symmetric=is_sym, is_fixed_aperture=is_fixed)
-    n_pos = mapper.n_vars
-else:
-    mapper = LMMapper(Ne=Ne, L=init_pos[-1]-init_pos[0], dmin=min(np.diff(init_pos)), is_symmetric=is_sym)
-    n_pos = 0
+# ── 5. 映射器 + 方向图 ──
+mapper = LMMapper(Ne=Ne, L=L_wl, dmin=dmin_wl, is_symmetric=is_sym,
+                   is_fixed_aperture=is_fixed, use_sigmoid=False)
 pat = Pattern(theta_deg_start=theta_start, theta_deg_end=theta_end,
               theta_deg_step=theta_step, theta0s_deg=theta0s, frequenciesGHz=freqs)
-n_phs = Ne if h_mode == 1 else 0; n_amp = Ne if a_mode == 1 else 0
-print(f"  变量维度: {n_pos}+{n_phs}+{n_amp}={n_pos+n_phs+n_amp}")
 
-# ── 6. 优化 ──
-run_opts = {k: opt_params[k] for k in ("pop_size", "max_iter", "n_jobs") if k in opt_params}
-if "sigma" in opt_params:
-    run_opts["sigma0"] = opt_params["sigma"]
+print(f"=== 稀布幅相优化 (CMA) ===")
+print(f"  阵列: {Ne}元, 孔径={L_wl}λ, dmin={dmin_wl}λ, 对称={is_sym}")
+print(f"  mode={mode}, theta0={theta0s.tolist()}, n_vars={mapper.n_vars}")
+
+# ── 6. 构建适应度 ──
+problem = SparseArrayProblem(mapper, pat, mode=mode,
+    init_positions=init_pos, init_phases_deg=init_phs, init_amplitudes=init_amp,
+    amplitude_bounds=amp_bounds, target_hpbw=hpbw_target,
+    element_patterns=fe_patterns, use_pointing_penalty=use_pt_penalty)
+
+# ── 7. 优化器参数 ──
+opt_param = cfg.get("optimizer", {})
+resume_enabled = opt_param.get("resume", False)
 
 t0 = time.perf_counter()
-result = run_optimization(mapper, pat, method=method, seed=cfg["randomSeed"],
-    verbose=verbose, stop_fitness=stop_fitness,
-    mode=mode, init_positions=init_pos, init_phases_deg=init_phs, init_amplitudes=init_amp,
-    amplitude_bounds=amp_bounds, target_hpbw=hpbw_target,
-    element_patterns=fe_patterns, use_pointing_penalty=use_pt_penalty,
-    **run_opts)
+result = minimize(
+    problem.fitness, problem.n_vars,
+    method="cma",
+    bounds=(0.0, 1.0),
+    sigma=opt_param.get("sigma", 0.5),
+    pop_size=opt_param.get("pop_size") or None,
+    max_iter=opt_param.get("max_iter", 500),
+    seed=cfg.get("randomSeed", 42),
+    n_jobs=opt_param.get("n_jobs", -1),
+    verbose=opt_param.get("verbose", True),
+    init="chaos",
+    stop_fitness=opt_param.get("stopFitness"),
+    checkpoint=str(CKPT_FILE) if resume_enabled else None,
+    resume=str(CKPT_FILE) if resume_enabled and CKPT_FILE.exists() else None,
+)
 elapsed = time.perf_counter() - t0
 
-# ── 7. 方向图 & 保存 ──
-res = result["result"]
+# 清除断点文件
+if resume_enabled and CKPT_FILE.exists():
+    CKPT_FILE.unlink()
+
+# ── 8. 结果 ──
+res = problem.get_result(result["x"])
 pos, amps = res["positions"], res["amplitudes"]
-pattern = compute_pattern(pos, amps, np.deg2rad(res["phases_deg"]), mapper, pat, fe_patterns)
-af_db = Pattern.to_dB(pattern)
+phases_deg = res["phases_deg"]
+theta_range = f"θ ∈ [{theta_start}°, {theta_end}°], Δθ = {theta_step}°"
 
-print(f"\n  最优适应度: {result['f']:.4f} dB, 耗时: {elapsed:.1f}s")
+print(f"\n  最优 PSLL: {result['f']:.4f} dB, 耗时: {elapsed:.1f}s")
 
+# ── 9. 保存图片 ──
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 out_dir = HERE / "result" / ts
-fig_dir = out_dir / "figures"
+fig_dir = out_dir / "figures"; fig_dir.mkdir(parents=True, exist_ok=True)
 n_freq, n_scan = len(freqs), len(theta0s)
-multi = (n_freq > 1 or n_scan > 1)
+per_dir = fig_dir / "per_pattern"; per_dir.mkdir(exist_ok=True)
 
-# 建立子目录
-if multi:
-    (fig_dir / "per_pattern").mkdir(parents=True, exist_ok=True)
-    (fig_dir / "by_freq").mkdir(parents=True, exist_ok=True)
-    (fig_dir / "by_angle").mkdir(parents=True, exist_ok=True)
+# 计算方向图 (对称 / 非对称)
+if mapper.is_symmetric:
+    offset = 1 if mapper.has_center else 0
+    af = pat.linear_af_symmetric(pos[mapper._halfNe + offset:], has_center=mapper.has_center)
 else:
-    fig_dir.mkdir(parents=True, exist_ok=True)
-
+    af = pat.linear_af(pos)
+af_db = 20 * np.log10(np.abs(af) / np.max(np.abs(af)))
 af_db_flat = af_db.reshape(-1, af_db.shape[-1]) if af_db.ndim > 1 else af_db[None, :]
 
-# 辅助: 保存单张图到文件
-def _save_fig(filename, title, lines):
+multi_freq = n_freq > 1
+multi_scan = n_scan > 1
+if multi_scan: (fig_dir / "by_freq").mkdir(exist_ok=True)
+if multi_freq: (fig_dir / "by_angle").mkdir(exist_ok=True)
+
+worst_psll = -np.inf
+for sub in range(af_db_flat.shape[0]):
+    si = sub % n_scan; fi = sub // n_scan if n_scan > 0 else 0
+    f_ghz = freqs[fi % n_freq]; t0 = theta0s[si]
+    psll_v, _ = get_psll(af_db_flat[sub], pat.theta_deg)
+    if psll_v > worst_psll: worst_psll = psll_v
+    # 标题: 单频省略频率
+    if multi_freq:
+        label = f"f = {f_ghz:.4g} GHz,  $\\theta_0$ = {t0:.1f}°"
+    else:
+        label = f"$\\theta_0$ = {t0:.1f}°"
+    # 文件名: 单频省略频率前缀
+    if multi_freq:
+        fname = f"f{f_ghz:.4g}GHz_theta{t0:.1f}.png"
+    else:
+        fname = f"theta{t0:.1f}.png"
     fig, ax = plt.subplots(figsize=(10, 5))
-    for theta, db, label in lines:
-        ax.plot(theta, db, linewidth=1.0, label=label)
-    ax.set_xlabel("$\\theta$ (deg)")
-    ax.set_ylabel("Normalized Pattern (dB)")
-    ax.set_title(title)
-    ax.set_ylim(-60, 3)
-    ax.grid(True, alpha=0.3)
-    if lines:
-        ax.legend(fontsize=8)
-    fig.savefig(filename, dpi=150, bbox_inches="tight")
+    ax.plot(pat.theta_deg, af_db_flat[sub], linewidth=1.0)
+    ax.set_title(f"{label},  PSLL = {psll_v:.2f} dB\n{theta_range}")
+    ax.set_xlabel("$\\theta$ (deg)"); ax.set_ylabel("Norm. Pattern (dB)")
+    ax.set_ylim(-60, 3); ax.grid(True, alpha=0.3)
+    fig.savefig(per_dir / fname, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
-# per_pattern: 每个 (freq, angle) 单独一张
-per_info = []
-for sub in range(af_db_flat.shape[0]):
-    scan_idx = sub % n_scan
-    freq_idx = sub // n_scan if n_scan > 0 else 0
-    f_ghz = freqs[freq_idx % n_freq]
-    t0 = theta0s[scan_idx]
-    psll_v, _ = get_psll(af_db_flat[sub], pat.theta_deg)
-    tag = f"f{f_ghz:.4g}GHz_theta{t0:.1f}"
-    per_info.append((f_ghz, t0, af_db_flat[sub], psll_v))
-    label = f"f={f_ghz:.4g}GHz $\\theta_0$={t0:.1f}$^\\circ$"
-    path = (fig_dir / "per_pattern" / f"{tag}.png") if multi else (fig_dir / f"{tag}.png")
-    _save_fig(path, f"Radiation Pattern ({label})  PSLL={psll_v:.2f} dB",
-              [(pat.theta_deg, af_db_flat[sub], label)])
-
-# by_freq: 每个频率下所有角度在一张图
-if multi and n_scan > 1:
+# by_freq: 单频多角度 → 一张图, 多频多角度 → 每频率一张
+if multi_scan:
     for fi, f_ghz in enumerate(freqs):
-        lines = []
+        fig, ax = plt.subplots(figsize=(10, 5))
         for si, t0 in enumerate(theta0s):
-            sub = fi * n_scan + si
-            lines.append((pat.theta_deg, af_db_flat[sub],
-                          f"$\\theta_0$={t0:.1f}$^\\circ$"))
-        _save_fig(fig_dir / "by_freq" / f"f{f_ghz:.4g}GHz.png",
-                  f"Radiation Patterns @ f={f_ghz:.4g} GHz", lines)
+            ax.plot(pat.theta_deg, af_db_flat[fi * n_scan + si], linewidth=1.0,
+                    label=f"$\\theta_0$ = {t0:.1f}°")
+        if multi_freq:
+            t = f"f = {f_ghz:.4g} GHz\n{theta_range}"
+            fn = f"f{f_ghz:.4g}GHz.png"
+        else:
+            t = f"$\\theta_0$ scan\n{theta_range}"
+            fn = "all_angles.png"
+        ax.set_title(t); ax.set_xlabel("$\\theta$ (deg)"); ax.set_ylabel("Norm. Pattern (dB)")
+        ax.set_ylim(-60, 3); ax.grid(True, alpha=0.3); ax.legend(fontsize=8)
+        fig.savefig(fig_dir / "by_freq" / fn, dpi=150, bbox_inches="tight")
+        plt.close(fig)
 
-# by_angle: 每个角度下所有频率在一张图
-if multi and n_freq > 1:
+# by_angle: 多频率角度 → 每角度一张, 单角度多频 → 一张
+if multi_freq:
     for si, t0 in enumerate(theta0s):
-        lines = []
+        fig, ax = plt.subplots(figsize=(10, 5))
         for fi, f_ghz in enumerate(freqs):
-            sub = fi * n_scan + si
-            lines.append((pat.theta_deg, af_db_flat[sub],
-                          f"f={f_ghz:.4g}GHz"))
-        _save_fig(fig_dir / "by_angle" / f"theta{t0:.1f}deg.png",
-                  f"Radiation Patterns @ $\\theta_0$={t0:.1f}$^\\circ$", lines)
+            ax.plot(pat.theta_deg, af_db_flat[fi * n_scan + si], linewidth=1.0,
+                    label=f"f = {f_ghz:.4g} GHz")
+        if multi_scan:
+            t = f"$\\theta_0$ = {t0:.1f}°\n{theta_range}"
+            fn = f"theta{t0:.1f}deg.png"
+        else:
+            t = f"$\\theta_0$ = {t0:.1f}°\n{theta_range}"
+            fn = "all_freqs.png"
+        ax.set_title(t); ax.set_xlabel("$\\theta$ (deg)"); ax.set_ylabel("Norm. Pattern (dB)")
+        ax.set_ylim(-60, 3); ax.grid(True, alpha=0.3); ax.legend(fontsize=8)
+        fig.savefig(fig_dir / "by_angle" / fn, dpi=150, bbox_inches="tight")
+        plt.close(fig)
 
-print(f"  图片已保存: {fig_dir}")
-
-# ── 8. 保存 JSON ──
-json_path = out_dir / "optResult.json"
+# ── 10. 保存 JSON ──
 out_data = {
     "settings": cfg,
     "result": {
-        "bestFitness": float(result["f"]), "bestPositions": pos.tolist(),
-        "bestPhasesDeg": res["phases_deg"].tolist(), "bestAmplitudes": amps.tolist(),
-        "optimizer": method, "elapsedSeconds": round(elapsed, 1),
-    },
-    "pattern": {
-        "frequenciesGHz": freqs.tolist(), "theta0sDeg": theta0s.tolist(),
-        "thetaDeg": pat.theta_deg.tolist(), "value": pattern.tolist(),
+        "bestFitness": float(result["f"]), "bestPSLL": worst_psll,
+        "bestX": result["x"].tolist(),
+        "bestPositions": pos.tolist(),
+        "bestPhasesDeg": phases_deg.tolist(), "bestAmplitudes": amps.tolist(),
+        "optimizer": "cma", "elapsedSeconds": round(elapsed, 1),
     },
 }
-with open(json_path, "w", encoding="utf-8") as f:
+with open(out_dir / "optResult.json", "w", encoding="utf-8") as f:
     f.write(to_json_flat(out_data))
 print(f"  结果已保存: {out_dir}")

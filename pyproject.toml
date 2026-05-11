@@ -12,7 +12,6 @@ dependencies = [
     "scipy>=1.10",
     "matplotlib>=3.7",
     "cma>=3",
-    "nevergrad>=1.0",
 ]
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "sphinx>=5.0", "jupyter>=1.0"]

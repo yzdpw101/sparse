@@ -54,7 +54,7 @@ def test_even_symmetric_fixed_aperture():
     """偶对称固定孔径: 10 元, L=4.5, dmin=0.5。"""
     mapper = LMMapper(Ne=10, L=4.5, dmin=0.5,
                       is_symmetric=True, is_fixed_aperture=True)
-    assert mapper.n_vars == 3
+    assert mapper.n_vars == 4  # halfNe=5, n_fixed=1 (孔径端)
     opt = np.zeros(mapper.n_vars)
     pos = mapper.synthesize(opt)
     assert abs(pos[0] + 2.25) < 1e-10
@@ -65,7 +65,7 @@ def test_even_symmetric_fixed_aperture():
 # ── 奇对称 ──
 
 def test_odd_symmetric():
-    """奇对称: 17 元, n_vars = (17-1)/2 = 8。"""
+    """奇对称: 17 元, n_vars = 17//2 = 8（右半侧 8 个阵元，无固定）。"""
     mapper = LMMapper(Ne=17, L=10.0, dmin=0.5, is_symmetric=True)
     assert mapper.has_center
     assert mapper.n_vars == 8
@@ -74,11 +74,11 @@ def test_odd_symmetric():
     assert len(pos) == 17
     assert abs(pos[8]) < 1e-10
     assert np.allclose(pos[:8], -pos[9:][::-1])
-    assert np.all(np.diff(pos) >= 0.5 - 1e-10)
+    assert np.all(np.diff(pos) >= 0.5 - 1e-10)  # 奇数对称：所有相邻间距 ≥ dmin
 
 
 def test_odd_symmetric_fixed_aperture():
-    """奇对称固定孔径: 17 元, n_vars = (17+1)/2 - 2 = 7。"""
+    """奇对称固定孔径: 17 元, n_vars = 17//2 - 1 = 7（右半侧 8，孔径端固定 1）。"""
     mapper = LMMapper(Ne=17, L=10.0, dmin=0.5,
                       is_symmetric=True, is_fixed_aperture=True)
     assert mapper.n_vars == 7
@@ -96,7 +96,7 @@ def test_odd_symmetric_unbounded():
     pos = mapper.synthesize(opt)
     assert len(pos) == 15
     assert abs(pos[7]) < 1e-10
-    assert np.all(np.diff(pos) >= 0.5 - 1e-10)
+    assert np.all(np.diff(pos) >= 0.5 - 1e-10)  # 奇数对称：所有相邻间距 ≥ dmin
 
 
 # ── 通用 ──

@@ -40,13 +40,17 @@
 
   "coarse": {
     "optimizer": {
-      "cma": { "pop_size": null, "max_iter": 1000, "sigma": 1.0, "n_jobs": 0, "verbose": true, "stopFitness": null }
+      "method": "cma",
+      "cma": { "pop_size": null, "max_iter": 1000, "sigma": 1.0, "n_jobs": 0, "verbose": true, "stopFitness": null },
+      "cma_cpp": { "pop_size": null, "max_iter": 500, "sigma": 0.3, "n_jobs": 8, "verboseInterval": 50, "stopFitness": null }
     }
   },
 
   "pe": {
     "optimizer": {
-      "cma": { "pop_size": null, "max_iter": 2000, "sigma": 1.0, "n_jobs": 0, "verbose": true, "stopFitness": null }
+      "method": "cma",
+      "cma": { "pop_size": null, "max_iter": 2000, "sigma": 1.0, "n_jobs": 0, "verbose": true, "stopFitness": null },
+      "cma_cpp": { "pop_size": null, "max_iter": 500, "sigma": 0.3, "n_jobs": 8, "verboseInterval": 50, "stopFitness": null }
     }
   },
 

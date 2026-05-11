@@ -23,12 +23,14 @@ def compute_pattern(pos, amps, phases, mapper, pat, fe_patterns=None):
         af = pat.linear_af(pos, amps, phases)
     else:
         halfNe = mapper._halfNe
+        offset = 1 if mapper.has_center else 0
         kwargs = dict(has_center=mapper.has_center,
-                      amplitudes=amps[halfNe:], phases=phases[halfNe:])
+                      amplitudes=amps[halfNe + offset:],
+                      phases=phases[halfNe + offset:])
         if mapper.has_center:
-            kwargs["center_amplitude"] = amps[halfNe - 1]
-            kwargs["center_phase"] = phases[halfNe - 1]
-        af = pat.linear_af_symmetric(pos[halfNe:], **kwargs)
+            kwargs["center_amplitude"] = amps[halfNe]
+            kwargs["center_phase"] = phases[halfNe]
+        af = pat.linear_af_symmetric(pos[halfNe + offset:], **kwargs)
     af_abs = np.abs(af)
     if fe_patterns is not None:
         af_abs = af_abs * fe_patterns[0]

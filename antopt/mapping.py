@@ -7,7 +7,7 @@ from typing import Optional
 import numpy as np
 
 # sigmoid 钳位阈值：|x| > CLIP 时直接取 0 或 1，避免 exp 溢出
-_SIGMOID_CLIP = 20.0
+_SIGMOID_CLIP = 100
 
 
 class LMMapper:
@@ -31,6 +31,7 @@ class LMMapper:
         dmax: Optional[float] = None,
         is_symmetric: bool = False,
         is_fixed_aperture: bool = False,
+        use_sigmoid: bool = True,
     ):
         """
         Args:
@@ -40,6 +41,7 @@ class LMMapper:
             dmax: 最大阵元间距，None=无上限
             is_symmetric: 是否关于原点对称
             is_fixed_aperture: 是否固定孔径（两端阵元钉在 ±L/2）
+            use_sigmoid: True=sigmoid 映射 (ℝ→(0,1)), False=clamp 到 [0,1]
         """
         if dmax is not None and is_fixed_aperture:
             raise ValueError(
@@ -70,15 +72,14 @@ class LMMapper:
         self._dmax = dmax  # None = 无上限
         self._is_symmetric = is_symmetric
         self._is_fixed_aperture = is_fixed_aperture
+        self._use_sigmoid = use_sigmoid
 
         # 预计算半侧参数
+        # _halfNe = 右半侧阵元数（不含中心，中心由 has_center / linear_af_symmetric 处理）
         if is_symmetric:
             self._has_center = (Ne % 2 == 1)
-            self._halfNe = (Ne + 1) // 2 if self._has_center else Ne // 2
-            if self._has_center:
-                self._n_fixed = 1 + (1 if is_fixed_aperture else 0)
-            else:
-                self._n_fixed = 2 if is_fixed_aperture else 0
+            self._halfNe = Ne // 2               # 右半侧只含 x>0 的阵元
+            self._n_fixed = 1 if is_fixed_aperture else 0  # 仅孔径端固定
         else:
             self._has_center = False
             self._halfNe = Ne
@@ -127,10 +128,12 @@ class LMMapper:
         return 1.0 / (1.0 + np.exp(-x_clipped))
 
     def synthesize(self, opt_vector: np.ndarray) -> np.ndarray:
-        """将无界优化变量映射为阵元位置。
+        """将优化变量映射为阵元位置。
 
         Args:
-            opt_vector: 优化变量, shape (n_vars,), 任意实数值
+            opt_vector: 优化变量, shape (n_vars,)
+                use_sigmoid=True  → ℝ 任意实数
+                use_sigmoid=False → [0, 1] 有界
 
         Returns:
             阵元位置数组, shape (Ne,), 已排序, 以 λ₀ 为单位
@@ -141,7 +144,10 @@ class LMMapper:
                 f"opt_vector 长度 {len(opt_vector)} != n_vars {self.n_vars}"
             )
 
-        v = self._sigmoid(opt_vector)
+        if self._use_sigmoid:
+            v = self._sigmoid(opt_vector)
+        else:
+            v = np.clip(opt_vector, 0.0, 1.0)
         halfL = self._L / 2.0
 
         if np.isinf(self.dmax):
@@ -163,50 +169,52 @@ class LMMapper:
     def _synthesize_symmetric_no_dmax(
         self, v: np.ndarray, halfL: float, dmin: float
     ) -> np.ndarray:
-        halfNe = self._halfNe
-        hpos = np.empty(halfNe)
+        """对称无 dmax 映射。
 
-        if self._has_center:
-            hpos[0] = 0.0
-            n_gap = halfNe - 1  # 不含中心固定
-            length_remain = halfL - (halfNe - 1) * dmin
-        else:
-            hpos[0] = dmin / 2.0
-            n_gap = halfNe  # 含第一个间距（hpos[0] 的偏移）
-            length_remain = halfL - (halfNe - 0.5) * dmin
+        hpos 只含右半侧阵元（x > 0），不含中心。
+        奇数：中心→hpos[0] 最小 dmin（中心阵元存在）
+        偶数：中心→hpos[0] 最小 dmin/2（±hpos[0] 间距 = dmin）
+        """
+        halfNe = self._halfNe
 
         if self._is_fixed_aperture:
-            n_gap = halfNe - 2  # 两端固定
-            # 反向分配间隙: v[0]→边缘, v[-1]→中心
-            extras = np.empty(n_gap)
-            temp = length_remain
-            for i in range(n_gap):
-                extras[n_gap - 1 - i] = temp * v[i]
-                temp *= (1.0 - v[i])
-            for i in range(n_gap):
-                hpos[i + 1] = hpos[i] + dmin + extras[i]
-            hpos[halfNe - 1] = halfL
+            n_gap = halfNe - 1
         else:
-            extras = np.empty(n_gap)
-            temp = length_remain
-            for i in range(n_gap):
-                extras[n_gap - 1 - i] = temp * v[i]
-                temp *= (1.0 - v[i])
-            if self._has_center:
-                for i in range(n_gap):
-                    hpos[i + 1] = hpos[i] + dmin + extras[i]
-            else:
-                hpos[0] += extras[0]
-                for i in range(1, n_gap):
-                    hpos[i] = hpos[i - 1] + dmin + extras[i]
+            n_gap = halfNe
 
+        if self._has_center:
+            length_remain = halfL - halfNe * dmin
+        else:
+            length_remain = halfL - dmin * (halfNe - 0.5)
+
+        # 反向 stick-breaking: v[0]→最外侧, v[-1]→最内侧
+        extras = np.empty(n_gap)
+        temp = length_remain
+        for i in range(n_gap):
+            extras[n_gap - 1 - i] = temp * v[i]
+            temp *= (1.0 - v[i])
+
+        hpos = np.empty(halfNe)
+        if self._has_center:
+            hpos[0] = dmin + extras[0]               # 奇数：中心→右一 ≥ dmin
+        else:
+            hpos[0] = dmin / 2.0 + extras[0]         # 偶数：±右一 ≥ dmin
+        for i in range(1, n_gap):
+            hpos[i] = hpos[i - 1] + dmin + extras[i]
+
+        if self._is_fixed_aperture:
+            hpos[halfNe - 1] = halfL  # 孔径端钉住
+        # 非固定孔径: n_gap == halfNe, hpos[halfNe-1] 已由循环设置
+
+        # 拼接全阵
         pos = np.empty(self._Ne)
         if self._has_center:
-            pos[:halfNe - 1] = -hpos[1:][::-1]
-            pos[halfNe - 1:] = hpos
+            pos[:halfNe] = -hpos[::-1]        # 左半侧
+            pos[halfNe] = 0.0                 # 中心
+            pos[halfNe + 1:] = hpos           # 右半侧
         else:
-            pos[:halfNe] = -hpos[::-1]
-            pos[halfNe:] = hpos
+            pos[:halfNe] = -hpos[::-1]        # 左半侧
+            pos[halfNe:] = hpos               # 右半侧
         return pos
 
     def _synthesize_asymmetric_no_dmax(
@@ -249,26 +257,22 @@ class LMMapper:
     def _synthesize_symmetric_with_dmax(
         self, v: np.ndarray, halfL: float, dmin: float, delta: float
     ) -> np.ndarray:
+        """对称有 dmax 映射。"""
         halfNe = self._halfNe
         hpos = np.empty(halfNe)
 
         if self._has_center:
-            hpos[0] = 0.0
+            hpos[0] = dmin + delta * v[0]
         else:
-            hpos[0] = dmin / 2.0
-
-        if self._has_center:
-            for i in range(halfNe - 1):
-                hpos[i + 1] = hpos[i] + dmin + delta * v[i]
-        else:
-            hpos[0] += delta * v[0] / 2.0
-            for i in range(1, halfNe):
-                hpos[i] = hpos[i - 1] + dmin + delta * v[i]
+            hpos[0] = dmin / 2.0 + delta * v[0] / 2.0
+        for i in range(1, halfNe):
+            hpos[i] = hpos[i - 1] + dmin + delta * v[i]
 
         pos = np.empty(self._Ne)
         if self._has_center:
-            pos[:halfNe - 1] = -hpos[1:][::-1]
-            pos[halfNe - 1:] = hpos
+            pos[:halfNe] = -hpos[::-1]
+            pos[halfNe] = 0.0
+            pos[halfNe + 1:] = hpos
         else:
             pos[:halfNe] = -hpos[::-1]
             pos[halfNe:] = hpos

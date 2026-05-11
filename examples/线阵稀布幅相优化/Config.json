@@ -1,14 +1,16 @@
 {
-  "frequenciesGHz": [10.6, 11.4],
-  "randomSeed": 0,
+  "frequenciesGHz": [1, 3],
+  "randomSeed": 42,
+
   "aspectAngle": {
-    "thetaStartDeg": -90,
+    "thetaStartDeg": 0,
     "thetaEndDeg": 90,
     "thetaStepDeg": 0.1,
-    "theta0sDeg": [-20]
+    "theta0sDeg": [0, 10]
   },
+
   "target": {
-    "mode": 201,
+    "mode": 100,
     "amplitudeBounds": [0.0, 1.0],
     "targetHPBW": null,
     "mainLobePointingPenalty": true,
@@ -18,27 +20,31 @@
       "amplitudesFile": null
     }
   },
+
   "ePattern": {
-    "enabled": true,
+    "enabled": false,
     "csvDirectory": "input/element_pattern/kty",
     "degStep": 0.1,
     "isGain": true,
     "inDB": true,
     "thetaRange": [-90, 90]
   },
+
   "antennaArray": {
-    "L_wavelength": 73,
+    "L_wavelength": 9.875,
     "dmin_wavelength": 0.5,
-    "dmax_wavelength": null,
-    "Ne": 78,
-    "isSymmetryArray": true,
+    "Ne": 17,
+    "isSymmetryArray": false,
     "isFixedAperture": true
   },
+
   "optimizer": {
-    "method": "cma",
-    "cma":    { "pop_size": 10, "max_iter": 10, "sigma": 1.0, "n_jobs": 8, "verbose": true,  "stopFitness": null },
-    "ngopt":  { "pop_size": 50, "max_iter": 10000,                    "n_jobs": 0, "verbose": false, "stopFitness": null },
-    "cma_ng": { "pop_size": 100, "max_iter": 300,                    "n_jobs": 0, "verbose": true, "stopFitness": null },
-    "de":     { "pop_size": 50, "max_iter": 10000,                    "n_jobs": 0, "verbose": false, "stopFitness": null }
+    "sigma": 0.5,
+    "pop_size": null,
+    "max_iter": 1000,
+    "n_jobs": -1,
+    "verbose": true,
+    "stopFitness": -26,
+    "resume": false
   }
 }

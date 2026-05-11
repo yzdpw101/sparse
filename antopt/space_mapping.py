@@ -85,7 +85,8 @@ def parameter_extraction(
             af = pattern.linear_af(pos)
         else:
             halfNe = mapper._halfNe
-            af = pattern.linear_af_symmetric(pos[halfNe:], has_center=mapper.has_center)
+            offset = 1 if mapper.has_center else 0
+            af = pattern.linear_af_symmetric(pos[halfNe + offset:], has_center=mapper.has_center)
         af_abs = np.abs(af)
         if fe_patterns is not None:
             af_abs = af_abs * fe_patterns[0]
@@ -145,7 +146,8 @@ def run_space_mapping(
             af = pattern.linear_af(pos)
         else:
             hN = mapper._halfNe
-            af = pattern.linear_af_symmetric(pos[hN:], has_center=mapper.has_center)
+            offset = 1 if mapper.has_center else 0
+            af = pattern.linear_af_symmetric(pos[hN + offset:], has_center=mapper.has_center)
         af_abs = np.abs(af)
         if fe_patterns is not None:
             af_abs = af_abs * fe_patterns[0]

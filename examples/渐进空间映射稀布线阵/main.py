@@ -63,7 +63,12 @@ if eg.get("enabled") and eg.get("csvDirectory"):
         print(f"  加载单元方向图: {len(fe_patterns)} 个频率")
 
 # ── 4. 构造粗模型 ──
-mapper = LMMapper(Ne=Ne, L=L, dmin=dmin, is_symmetric=is_sym)
+coarse_opt_cfg = cfg["coarse"]["optimizer"]
+coarse_method = coarse_opt_cfg.get("method", "cma")
+coarse_cfg = coarse_opt_cfg.get(coarse_method, coarse_opt_cfg.get("cma", {}))
+
+use_sigmoid = (coarse_method != "cma_cpp")
+mapper = LMMapper(Ne=Ne, L=L, dmin=dmin, is_symmetric=is_sym, use_sigmoid=use_sigmoid)
 pat = Pattern(theta_deg_start=theta_start, theta_deg_end=theta_end,
               theta_deg_step=theta_step, theta0s_deg=theta0s,
               frequenciesGHz=np.array([freq_ghz]))
@@ -71,27 +76,29 @@ pat = Pattern(theta_deg_start=theta_start, theta_deg_end=theta_end,
 print(f"=== 渐进空间映射稀布线阵 ===")
 print(f"  阵列: {Ne}元, 孔径={L}λ, dmin={dmin}λ, 对称={is_sym}")
 print(f"  频率: {freq_ghz} GHz, 指向角: {theta0s.tolist()} deg")
-print(f"  变量维度: {mapper.n_vars}")
+print(f"  变量维度: {mapper.n_vars}, 优化器={coarse_method}")
 
 # ── 5. 粗模型优化 (getBestXc) ──
-cma_cfg = cfg["coarse"]["optimizer"]["cma"]
 print(f"\n--- Step 1: 粗模型优化 ---")
 t0 = time.perf_counter()
 coarse_result = run_optimization(
-    mapper, pat, method="cma", mode=mode, seed=seed,
+    mapper, pat, method=coarse_method, mode=mode, seed=seed,
     target_hpbw=hpbw_target, use_pointing_penalty=use_pt_penalty,
     element_patterns=fe_patterns, amplitude_bounds=amp_bounds,
-    pop_size=cma_cfg["pop_size"], max_iter=cma_cfg["max_iter"],
-    sigma0=cma_cfg["sigma"], n_jobs=cma_cfg.get("n_jobs", 0),
-    verbose=cma_cfg.get("verbose", True),
-    stop_fitness=cma_cfg.get("stopFitness"),
+    pop_size=coarse_cfg.get("pop_size"), max_iter=coarse_cfg.get("max_iter", 1000),
+    sigma0=coarse_cfg.get("sigma", 1.0), n_jobs=coarse_cfg.get("n_jobs", 0),
+    verbose=coarse_cfg.get("verbose", True),
+    verbose_interval=coarse_cfg.get("verboseInterval"),
+    stop_fitness=coarse_cfg.get("stopFitness"),
 )
 Xc_star = coarse_result["x"]
 print(f"  粗模型最优 PSLL: {coarse_result['f']:.4f} dB")
 print(f"  耗时: {time.perf_counter() - t0:.1f}s")
 
 # ── 6. 空间映射迭代 ──
-pe_cfg = cfg["pe"]["optimizer"]["cma"]
+pe_opt_cfg = cfg["pe"]["optimizer"]
+pe_method = pe_opt_cfg.get("method", "cma")
+pe_cfg = pe_opt_cfg.get(pe_method, pe_opt_cfg.get("cma", {}))
 asm_cfg = cfg["asm"]
 
 # HFSS 仿真函数 — 参数写死在 main.py 不暴露到 Config
@@ -151,7 +158,9 @@ except Exception as e:
     # 兜底: 只保存粗模型响应
     pos = mapper.synthesize(Xc_star)
     if mapper.is_symmetric:
-        af = pat.linear_af_symmetric(pos[mapper._halfNe:], has_center=mapper.has_center)
+        hN = mapper._halfNe
+        offset = 1 if mapper.has_center else 0
+        af = pat.linear_af_symmetric(pos[hN + offset:], has_center=mapper.has_center)
     else:
         af = pat.linear_af(pos)
     af_abs = np.abs(af)

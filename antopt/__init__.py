@@ -5,7 +5,7 @@ from .geometry import Element, LinearArray, PlanarArray, UniformLinearArray
 from .element_pattern import ElementPattern
 from .analysis import get_psll, find_peaks, get_overall_psll
 from .mapping import LMMapper
-from .optimizer import SparseArrayProblem, run_optimization
+from .optimizer import SparseArrayProblem, minimize, CMA, DE, GWO
 from .utils import to_json_flat, load_array_config, compute_pattern
 from .space_mapping import run_space_mapping, parameter_extraction
 
@@ -18,7 +18,10 @@ __all__ = [
     "ElementPattern",
     "LMMapper",
     "SparseArrayProblem",
-    "run_optimization",
+    "minimize",
+    "CMA",
+    "DE",
+    "GWO",
     "to_json_flat",
     "load_array_config",
     "compute_pattern",
