@@ -1,16 +1,15 @@
 {
-  "frequenciesGHz": [9.8],
-  "randomSeed": 42,
+  "frequenciesGHz": [9],
+  "randomSeed": null,
 
   "aspectAngle": {
-    "thetaStartDeg": 0,
-    "thetaEndDeg": 90,
-    "thetaStepDeg": 0.001,
+    "thetaDeg": [-90, 90, 0.01],
     "theta0sDeg": [0]
   },
 
   "target": {
     "mode": 201,
+    "optimizeHalfAmpPhase": true,
     "amplitudeBounds": [0.0, 1.0],
     "targetHPBW": null,
     "mainLobePointingPenalty": true,
@@ -22,12 +21,11 @@
   },
 
   "ePattern": {
-    "enabled": false,
+    "enabled": true,
     "csvDirectory": "input/element_pattern/kty",
-    "degStep": 0.1,
+    "thetaDeg": [-90, 90, 0.01],
     "isGain": true,
-    "inDB": true,
-    "thetaRange": [0, 90]
+    "inDB": true
   },
 
   "antennaArray": {
@@ -41,10 +39,10 @@
   "optimizer": {
     "sigma": 0.5,
     "pop_size": null,
-    "max_iter": 1,
-    "n_jobs": 1,
+    "max_iter": 1000,
+    "n_jobs": -1,
     "verbose": true,
-    "stopFitness": -50,
+    "stopFitness": -35,
     "resume": false
   }
 }

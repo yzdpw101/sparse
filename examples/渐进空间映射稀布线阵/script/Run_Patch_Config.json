@@ -35,7 +35,7 @@
       "ThetaStop_deg": 180,
       "ThetaStep_deg": 0.01,
       "PhiStart_deg": 0,
-      "PhiStop_deg": 360,
+      "PhiStop_deg": 0,
       "PhiStep_deg": 1,
 
       "Assign_Excitation_Type": "LumpedPort"

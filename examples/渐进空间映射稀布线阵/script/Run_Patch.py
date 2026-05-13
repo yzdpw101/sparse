@@ -33,15 +33,15 @@ def run_patch_simulation(
     l1_mm: float = 7.7,
     # 求解器参数
     max_delta_s: float = 0.02,
-    max_passes: int = 1,
+    max_passes: int = 50,
     save_rad_fields_only: bool = True,
     # 远场辐射球参数
     theta_start: float = -180,
     theta_stop: float = 180,
     theta_step: float = 0.1,
     phi_start: float = 0,
-    phi_stop: float = 360,
-    phi_step: float = 1.0,
+    phi_stop: float = 0,
+    phi_step: float = 1,
     # 远场导出参数
     results_category: str = "GainTotal",
     results_function: str = "",

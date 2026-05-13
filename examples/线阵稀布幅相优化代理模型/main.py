@@ -1,6 +1,11 @@
-"""稀布幅相优化主脚本 — CMA 约束优化 + 断点续跑。
+"""稀布幅相优化 — Kriging 代理模型 + CMA-ES。
 
-用法: cd examples/线阵稀布幅相优化 && python main.py
+用法: cd examples/线阵稀布幅相优化代理模型 && python main.py
+
+流程:
+  1. LHS 采样 → AF 计算 PSLL → 训练 Kriging
+  2. CMA-ES 在 Kriging 上搜索 → EI 填充采样
+  3. 重训练, 重复直到收敛
 """
 import sys, json, time
 from pathlib import Path
@@ -15,27 +20,26 @@ matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu S
 matplotlib.rcParams['axes.unicode_minus'] = False
 import matplotlib.pyplot as plt
 
-from antopt import LMMapper, Pattern, minimize, SparseArrayProblem, get_psll
+from antopt import LMMapper, Pattern, SparseArrayProblem, get_psll
+from antopt.surrogate import surrogate_optimize
 from antopt.analysis import _find_peaks
 from antopt.element_pattern import ElementPattern
 from antopt.utils import to_json_flat, load_array_config
 
-# exe 兼容
 HERE = Path(sys.argv[0]).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
-CKPT_FILE = HERE / ".checkpoint.json"
 
 
 # ── 1. 加载配置 ──
 with open(HERE / "Config.json", encoding="utf-8") as f:
     cfg = json.load(f)
 
-freqs = np.sort(np.array(cfg["frequenciesGHz"], dtype=float))  # 升序，最小在前
+freqs = np.sort(np.array(cfg["frequenciesGHz"], dtype=float))
 asp = cfg["aspectAngle"]
-_ta = asp["thetaDeg"]  # [start, end, step]
+_ta = asp["thetaDeg"]
 theta_start, theta_end, theta_step = _ta[0], _ta[1], _ta[2]
 theta0s = np.array(asp["theta0sDeg"], dtype=float)
 
-# 种子校验: null→随机, 负整数→警告+随机, 浮点→警告+随机, 正整数→使用
+# 种子校验
 _raw_seed = cfg.get("randomSeed")
 if _raw_seed is None:
     seed = int(np.random.randint(0, 2**31))
@@ -58,9 +62,9 @@ p_mode = (mode // 100) % 10; h_mode = (mode // 10) % 10; a_mode = mode % 10
 
 # ── 2. 导入数据 ──
 imp = optz.get("import", {})
-init_pos = load_array_config(imp.get("positionsFile"), "xCenters", HERE) if p_mode in (0, 2) else None
-init_phs = load_array_config(imp.get("phasesFile"), "phasesDeg", HERE) if h_mode == 2 else None
-init_amp = load_array_config(imp.get("amplitudesFile"), "amplitudes", HERE) if a_mode == 2 else None
+init_pos = load_array_config(imp.get("positionsFile"), "xCenters", HERE) if p_mode in (0, 2) and imp.get("positionsFile") else None
+init_phs = load_array_config(imp.get("phasesFile"), "phasesDeg", HERE) if h_mode == 2 and imp.get("phasesFile") else None
+init_amp = load_array_config(imp.get("amplitudesFile"), "amplitudes", HERE) if a_mode == 2 and imp.get("amplitudesFile") else None
 if init_pos is not None:
     lam0 = 299792458.0 / (freqs[0] * 1e9)
     init_pos = init_pos / lam0
@@ -78,7 +82,6 @@ else:
     L_wl = init_pos[-1] - init_pos[0]
     dmin_wl = min(np.diff(init_pos))
     is_fixed = False
-    # 自动检测导入位置的对称性
     is_sym = all(abs(init_pos[i] + init_pos[Ne - 1 - i]) < 1e-6 for i in range(Ne // 2))
 
 # ── 4. 单元方向图 ──
@@ -111,7 +114,7 @@ problem = SparseArrayProblem(mapper, pat, mode=mode,
     element_patterns=fe_patterns, use_pointing_penalty=use_pt_penalty,
     optimize_half_amp_phase=optimize_half)
 
-print(f"=== 稀布幅相优化 (CMA) ===")
+print(f"=== 稀布幅相优化 (Kriging 代理) ===")
 print(f"  阵列: {Ne}元, 孔径={L_wl:.4f}λ, dmin={dmin_wl:.4f}λ, 对称={is_sym}")
 if len(freqs) > 1 or p_mode == 2:
     print(f"  频率: {freqs.tolist()} GHz")
@@ -119,14 +122,10 @@ print(f"  mode={mode} (位置={'优化' if p_mode==1 else '导入' if p_mode==2 
       f"相位={'优化' if h_mode==1 else '导入' if h_mode==2 else '默认'}, "
       f"幅度={'优化' if a_mode==1 else '导入' if a_mode==2 else '默认'})")
 print(f"  θ ∈ [{theta_start}°, {theta_end}°], Δθ={theta_step}°, θ0={theta0s.tolist()}")
-print(f"  种子: {seed if seed is not None else '随机'}")
+print(f"  种子: {seed}")
 print(f"  n_vars={problem.n_vars} (位置={problem.n_pos}, 相位={problem.n_phase}, 幅度={problem.n_amp})")
 
-# ── 7. 优化器参数 ──
-opt_param = cfg.get("optimizer", {})
-resume_enabled = opt_param.get("resume", False)
-
-# 构建分变量类型边界
+# ── 7. 代理模型优化 ──
 lb = np.empty(problem.n_vars); ub = np.empty(problem.n_vars)
 cur = 0
 if problem.n_pos > 0:
@@ -138,35 +137,29 @@ if problem.n_phase > 0:
 if problem.n_amp > 0:
     lb[cur:] = amp_bounds[0]; ub[cur:] = amp_bounds[1]
 
+surr_cfg = cfg.get("surrogate", {})
 t0 = time.perf_counter()
-result = minimize(
-    problem.fitness, problem.n_vars,
-    method="cma",
-    bounds=(lb, ub),
-    sigma=opt_param.get("sigma", 0.5),
-    pop_size=opt_param.get("pop_size") or None,
-    max_iter=opt_param.get("max_iter", 500),
+result = surrogate_optimize(
+    problem.fitness, problem.n_vars, bounds=(lb, ub),
+    n_initial=surr_cfg.get("n_initial"),
+    n_infill=surr_cfg.get("n_infill", 5),
+    max_iter=surr_cfg.get("max_iter", 20),
+    patience=surr_cfg.get("patience", 3),
+    acquisition=surr_cfg.get("acquisition", "ei"),
+    kappa=surr_cfg.get("kappa", 2.0),
+    method=surr_cfg.get("method", "cma"),
+    sigma=surr_cfg.get("sigma", 0.3),
     seed=seed,
-    n_jobs=opt_param.get("n_jobs", -1),
-    verbose=opt_param.get("verbose", True),
-    init="chaos",
-    stop_fitness=opt_param.get("stopFitness"),
-    checkpoint=str(CKPT_FILE) if resume_enabled else None,
-    resume=str(CKPT_FILE) if resume_enabled and CKPT_FILE.exists() else None,
+    verbose=cfg.get("optimizer", {}).get("verbose", True),
 )
 elapsed = time.perf_counter() - t0
-
-# 清除断点文件
-if resume_enabled and CKPT_FILE.exists():
-    CKPT_FILE.unlink()
 
 # ── 8. 结果 ──
 res = problem.get_result(result["x"])
 pos, amps = res["positions"], res["amplitudes"]
 phases_deg = res["phases_deg"]
-theta_range = f"θ ∈ [{theta_start}°, {theta_end}°], Δθ = {theta_step}°"
 
-print(f"\n  最优 PSLL: {result['f']:.4f} dB, 耗时: {elapsed:.1f}s")
+print(f"\n  最优 PSLL: {result['f']:.4f} dB, 总评估: {result['n_evals']} 次, 耗时: {elapsed:.1f}s")
 
 # ── 9. 保存图片 + CSV ──
 import csv as _csv
@@ -177,7 +170,17 @@ csv_dir = out_dir / "patterns"; csv_dir.mkdir(parents=True, exist_ok=True)
 n_freq, n_scan = len(freqs), len(theta0s)
 per_dir = fig_dir / "per_pattern"; per_dir.mkdir(exist_ok=True)
 
-# 计算方向图 (与 fitness() AF 路径一致: AF × 单元方向图)
+# 收敛历史图
+history = result["history"]
+fig_h, ax_h = plt.subplots(figsize=(8, 4))
+ax_h.plot([h["n_evals"] for h in history], [h["best_f"] for h in history],
+          "o-", markersize=3, linewidth=1)
+ax_h.set_xlabel("函数评估次数"); ax_h.set_ylabel("最优 PSLL (dB)")
+ax_h.set_title("代理模型优化收敛曲线"); ax_h.grid(True, alpha=0.3)
+fig_h.savefig(fig_dir / "convergence.png", dpi=150, bbox_inches="tight")
+plt.close(fig_h)
+
+# 计算方向图
 phases_rad = np.deg2rad(phases_deg)
 if mapper.is_symmetric and problem.optimize_half_amp_phase:
     offset = 1 if mapper.has_center else 0
@@ -210,33 +213,28 @@ if multi_freq: (fig_dir / "by_angle").mkdir(exist_ok=True)
 worst_psll = -np.inf
 for sub in range(af_db_flat.shape[0]):
     si = sub % n_scan; fi = sub // n_scan if n_scan > 0 else 0
-    f_ghz = freqs[fi % n_freq]; t0 = theta0s[si]
+    f_ghz = freqs[fi % n_freq]; t0_ang = theta0s[si]
     psll_v, _ = get_psll(af_db_flat[sub], pat.theta_deg)
     if psll_v > worst_psll: worst_psll = psll_v
-    # 标题: 单频省略频率
     if multi_freq:
-        label = f"f = {f_ghz:.4g} GHz,  $\\theta_0$ = {t0:.1f}°"
+        label = f"f = {f_ghz:.4g} GHz,  $\\theta_0$ = {t0_ang:.1f}°"
+        fname = f"f{f_ghz:.4g}GHz_theta{t0_ang:.1f}.png"
     else:
-        label = f"$\\theta_0$ = {t0:.1f}°"
-    # 文件名: 单频省略频率前缀
-    if multi_freq:
-        fname = f"f{f_ghz:.4g}GHz_theta{t0:.1f}.png"
-    else:
-        fname = f"theta{t0:.1f}.png"
+        label = f"$\\theta_0$ = {t0_ang:.1f}°"
+        fname = f"theta{t0_ang:.1f}.png"
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(pat.theta_deg, af_db_flat[sub], linewidth=1.0, label=label)
-    # 标出最大副瓣点 + 图例
     pk_idx, pk_val = _find_peaks(af_db_flat[sub])
     if len(pk_val) > 1:
         sl_theta, sl_db = pat.theta_deg[pk_idx[1]], pk_val[1]
         ax.plot(sl_theta, sl_db, "ro", markersize=4,
                 label=f"SLL: {sl_theta:.2f}°, {sl_db:.2f} dB")
+    theta_range = f"θ ∈ [{theta_start}°, {theta_end}°], Δθ = {theta_step}°"
     ax.set_title(f"{label},  PSLL = {psll_v:.2f} dB\n{theta_range}")
     ax.set_xlabel("$\\theta$ (deg)"); ax.set_ylabel("Norm. Pattern (dB)")
     ax.set_ylim(-60, 3); ax.grid(True, alpha=0.3); ax.legend(fontsize=8)
     fig.savefig(per_dir / fname, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    # 保存 CSV
     csv_name = fname.replace(".png", ".csv")
     with open(csv_dir / csv_name, "w", newline="", encoding="utf-8") as cf:
         w = _csv.writer(cf)
@@ -244,45 +242,9 @@ for sub in range(af_db_flat.shape[0]):
         for j in range(len(pat.theta_deg)):
             w.writerow([pat.theta_deg[j], af_db_flat[sub, j]])
 
-# by_freq: 单频多角度 → 一张图, 多频多角度 → 每频率一张
-if multi_scan:
-    for fi, f_ghz in enumerate(freqs):
-        fig, ax = plt.subplots(figsize=(10, 5))
-        for si, t0 in enumerate(theta0s):
-            ax.plot(pat.theta_deg, af_db_flat[fi * n_scan + si], linewidth=1.0,
-                    label=f"$\\theta_0$ = {t0:.1f}°")
-        if multi_freq:
-            t = f"f = {f_ghz:.4g} GHz\n{theta_range}"
-            fn = f"f{f_ghz:.4g}GHz.png"
-        else:
-            t = f"$\\theta_0$ scan\n{theta_range}"
-            fn = "all_angles.png"
-        ax.set_title(t); ax.set_xlabel("$\\theta$ (deg)"); ax.set_ylabel("Norm. Pattern (dB)")
-        ax.set_ylim(-60, 3); ax.grid(True, alpha=0.3); ax.legend(fontsize=8)
-        fig.savefig(fig_dir / "by_freq" / fn, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-
-# by_angle: 多频率角度 → 每角度一张, 单角度多频 → 一张
-if multi_freq:
-    for si, t0 in enumerate(theta0s):
-        fig, ax = plt.subplots(figsize=(10, 5))
-        for fi, f_ghz in enumerate(freqs):
-            ax.plot(pat.theta_deg, af_db_flat[fi * n_scan + si], linewidth=1.0,
-                    label=f"f = {f_ghz:.4g} GHz")
-        if multi_scan:
-            t = f"$\\theta_0$ = {t0:.1f}°\n{theta_range}"
-            fn = f"theta{t0:.1f}deg.png"
-        else:
-            t = f"$\\theta_0$ = {t0:.1f}°\n{theta_range}"
-            fn = "all_freqs.png"
-        ax.set_title(t); ax.set_xlabel("$\\theta$ (deg)"); ax.set_ylabel("Norm. Pattern (dB)")
-        ax.set_ylim(-60, 3); ax.grid(True, alpha=0.3); ax.legend(fontsize=8)
-        fig.savefig(fig_dir / "by_angle" / fn, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-
 # ── 10. 保存 JSON ──
 cfg_save = dict(cfg)
-cfg_save["randomSeed"] = seed  # 替换为实际使用的种子值
+cfg_save["randomSeed"] = seed
 out_data = {
     "settings": cfg_save,
     "result": {
@@ -290,7 +252,8 @@ out_data = {
         "bestX": result["x"].tolist(),
         "bestPositions": pos.tolist(),
         "bestPhasesDeg": phases_deg.tolist(), "bestAmplitudes": amps.tolist(),
-        "optimizer": "cma", "elapsedSeconds": round(elapsed, 1),
+        "optimizer": "kriging_cma", "elapsedSeconds": round(elapsed, 1),
+        "nEvals": result["n_evals"],
     },
 }
 with open(out_dir / "optResult.json", "w", encoding="utf-8") as f:

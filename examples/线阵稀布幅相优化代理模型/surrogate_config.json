@@ -1,0 +1,42 @@
+{
+  "frequenciesGHz": [
+    2.45
+  ],
+  "aspectAngle": {
+    "thetaDeg": [
+      -90,
+      90,
+      0.1
+    ],
+    "theta0sDeg": [
+      0.0
+    ]
+  },
+  "antennaArray": {
+    "Ne": 17,
+    "L_wavelength": 10,
+    "dmin_wavelength": 0.5,
+    "isSymmetryArray": false,
+    "isFixedAperture": true
+  },
+  "ePattern": {
+    "enabled": true,
+    "csvDirectory": "../线阵稀布幅相优化/input/element_pattern/patch_GainTotal",
+    "thetaDeg": [
+      -180,
+      180,
+      0.01
+    ],
+    "isGain": true,
+    "inDB": false
+  },
+  "target": {
+    "mode": 100,
+    "amplitudeBounds": [
+      0.0,
+      1.0
+    ]
+  },
+  "n_vars": 15,
+  "n_samples": 1000
+}

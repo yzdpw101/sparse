@@ -43,3 +43,10 @@ release/README.txt
 /sparse_optimizer.*
 examples/线阵稀布幅相优化/release/
 .firecrawl/
+
+# Stray files
+=1.3
+_pdf_text.txt
+
+# PCNN output
+examples/神经网络/PCNN复现/_*.txt

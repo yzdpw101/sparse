@@ -56,3 +56,17 @@ python benchmarks/optimizer2_132.py  # 132元 CMA 验证
 ## C++ 参考
 
 `E:\Documents\南理工\阵列天线稀疏\Sparse\`
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues（gh CLI）. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default labels: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — one CONTEXT.md + docs/adr/ at repo root. See `docs/agents/domain.md`.

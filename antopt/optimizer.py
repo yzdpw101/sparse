@@ -20,11 +20,20 @@
   GWO — (暂无特殊超参数)
 """
 
-import os, json
+import os, json, warnings
 from abc import ABC, abstractmethod
 from multiprocessing.pool import ThreadPool
 from typing import Optional, Callable, Union
 import numpy as np
+
+
+def _is_positions_symmetric(positions, tol=1e-6):
+    """检查位置是否关于原点对称 (x[i] + x[N-1-i] ≈ 0)。"""
+    n = len(positions)
+    for i in range(n // 2):
+        if abs(positions[i] + positions[n - 1 - i]) > tol:
+            return False
+    return True
 
 
 # ═══════════════════════════════════════════════
@@ -90,6 +99,7 @@ class SparseArrayProblem:
         mainlobe_region: Optional[tuple] = None,
         element_patterns: Optional[list] = None,
         use_pointing_penalty: bool = True,
+        optimize_half_amp_phase: bool = False,
     ):
         # 解码 mode: 百位=位置, 十位=相位, 个位=幅度
         p_mode = (mode // 100) % 10
@@ -118,11 +128,56 @@ class SparseArrayProblem:
         self.element_patterns = element_patterns
         self.use_pointing_penalty = use_pointing_penalty
 
+        # 仅优化一半阵元的幅度和相位 (对称阵列时左半边自动镜像)
+        self.optimize_half_amp_phase = optimize_half_amp_phase
+        if optimize_half_amp_phase:
+            if p_mode == 1 and not mapper.is_symmetric:
+                warnings.warn("optimizeHalfAmpPhase=True 但 mapper 不对称，已忽略")
+                self.optimize_half_amp_phase = False
+            elif p_mode == 2:
+                if init_positions is not None and not _is_positions_symmetric(init_positions):
+                    warnings.warn("optimizeHalfAmpPhase=True 但导入位置不对称，已忽略")
+                    self.optimize_half_amp_phase = False
+                elif init_positions is None and not mapper.is_symmetric:
+                    warnings.warn("optimizeHalfAmpPhase=True 但 mapper 不对称，已忽略")
+                    self.optimize_half_amp_phase = False
+            if not (h_mode == 1 or a_mode == 1):
+                warnings.warn("optimizeHalfAmpPhase=True 但无幅相变量可优化，已忽略")
+                self.optimize_half_amp_phase = False
+
         # 变量维度
         self.n_pos = mapper.n_vars if p_mode == 1 else 0
-        self.n_phase = mapper.Ne if h_mode == 1 else 0
-        self.n_amp = mapper.Ne if a_mode == 1 else 0
+        if h_mode == 1:
+            self.n_phase = self._half_n() if self.optimize_half_amp_phase else mapper.Ne
+        else:
+            self.n_phase = 0
+        if a_mode == 1:
+            self.n_amp = self._half_n() if self.optimize_half_amp_phase else mapper.Ne
+        else:
+            self.n_amp = 0
         self.n_vars = self.n_pos + self.n_phase + self.n_amp
+
+    def _half_n(self) -> int:
+        """对称半阵元变量数: halfNe + has_center。"""
+        return self.mapper._halfNe + (1 if self.mapper.has_center else 0)
+
+    def _expand_half(self, half_vals):
+        """半阵元变量 → 全阵元数组 (镜像左半边)。
+
+        half_vals 布局: [center(可选), right_half...]
+        返回: [left_half_mirror, center(可选), right_half]
+        """
+        hN = self.mapper._halfNe
+        has_c = self.mapper.has_center
+        full = np.empty(self.mapper.Ne)
+        if has_c:
+            full[hN] = half_vals[0]
+            right = half_vals[1:]
+        else:
+            right = half_vals
+        full[hN + (1 if has_c else 0):] = right
+        full[:hN] = right[::-1]
+        return full
 
     @staticmethod
     def _sigmoid(x: np.ndarray) -> np.ndarray:
@@ -141,7 +196,8 @@ class SparseArrayProblem:
 
         # 2. 相位 — 变量 ∈ [0, 2π], 无 sigmoid
         if self._h_mode == 1:
-            phases = x[self.n_pos:self.n_pos + self.n_phase]
+            raw = x[self.n_pos:self.n_pos + self.n_phase]
+            phases = self._expand_half(raw) if self.optimize_half_amp_phase else raw
         elif self._h_mode == 2:
             phases = np.deg2rad(self.init_phases_deg)
         else:
@@ -149,7 +205,8 @@ class SparseArrayProblem:
 
         # 3. 幅度 — 变量 ∈ [amp_lower, amp_upper], 无 sigmoid
         if self._a_mode == 1:
-            amps = x[-self.n_amp:]
+            raw = x[-self.n_amp:]
+            amps = self._expand_half(raw) if self.optimize_half_amp_phase else raw
         elif self._a_mode == 2:
             amps = self.init_amplitudes
         else:
@@ -158,9 +215,10 @@ class SparseArrayProblem:
         # 4. 计算 AF
         if self.pattern.is_planar:
             af = self.pattern.planar_af(pos, np.zeros_like(pos), amps, phases)
-        elif self.mapper.is_symmetric:
+        elif self.mapper.is_symmetric and self.optimize_half_amp_phase:
+            # 半阵元优化: _expand_half 已镜像，用 linear_af_symmetric
             halfNe = self.mapper._halfNe
-            offset = 1 if self.mapper.has_center else 0  # 奇对称跳过中心
+            offset = 1 if self.mapper.has_center else 0
             kwargs = dict(has_center=self.mapper.has_center,
                           amplitudes=amps[halfNe + offset:],
                           phases=phases[halfNe + offset:])
@@ -169,6 +227,7 @@ class SparseArrayProblem:
                 kwargs["center_phase"] = phases[halfNe]
             af = self.pattern.linear_af_symmetric(pos[halfNe + offset:], **kwargs)
         else:
+            # 全阵元优化 (含对称位置+全幅相): 用 linear_af 计算全部变量
             af = self.pattern.linear_af(pos, amps, phases)
 
         # 单元方向图乘积: pattern = Fe * |AF|  (C++ readFeMultiFreqFromCsvs)
@@ -260,14 +319,22 @@ class SparseArrayProblem:
             r["positions"] = self.init_positions
 
         if self._h_mode == 1:
-            r["phases_deg"] = np.rad2deg(x[self.n_pos:self.n_pos + self.n_phase])
+            raw = x[self.n_pos:self.n_pos + self.n_phase]
+            if self.optimize_half_amp_phase:
+                r["phases_deg"] = np.rad2deg(self._expand_half(raw))
+            else:
+                r["phases_deg"] = np.rad2deg(raw)
         elif self._h_mode == 2:
             r["phases_deg"] = self.init_phases_deg
         else:
             r["phases_deg"] = np.zeros_like(r["positions"])
 
         if self._a_mode == 1:
-            r["amplitudes"] = x[-self.n_amp:]
+            raw = x[-self.n_amp:]
+            if self.optimize_half_amp_phase:
+                r["amplitudes"] = self._expand_half(raw)
+            else:
+                r["amplitudes"] = raw
         elif self._a_mode == 2:
             r["amplitudes"] = self.init_amplitudes
         else:

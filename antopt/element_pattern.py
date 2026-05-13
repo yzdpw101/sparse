@@ -99,12 +99,23 @@ class ElementPattern:
 
         每个频率一个 CSV 文件: eGain_{freq}GHz.csv 或 {freq}GHz_*.csv。
 
+        CSV 格式 (两种):
+          类型 A — 有表头: 第 1 行为列标题, 第 1 列为 θ 角度值, 第 2 列起为数据。
+                   例: "Theta [deg],dB(RealizedGainTotal) []"
+                       "-90,-2.0002"
+          类型 B — 无表头: 仅一列数据在第 1 列 (phiIdx=0), 无角度列。
+                   例: "-2.0002"
+                       "-1.9987"
+
+        采样点数计算: N = (θ_end - θ_start) / θ_step + 1
+          例: θ ∈ [-90°, 90°], Δθ=0.01° → N = (90-(-90))/0.01+1 = 18001
+
         Args:
             eGainCsvDirectory: CSV 文件目录
             frequenciesGHz: 频率数组 (GHz)
             theta: 目标 θ 角度网格 (度)
             oriDegStep: CSV 原始 θ 步长 (度)
-            phiIdx: CSV 列索引 (0-based), 默认 1
+            phiIdx: CSV 列索引 (0-based), 默认 1 (第 2 列); 类型 B 用 0
             is_gain: True=CSV 为增益(功率), False=场量
             in_dB: True=CSV 为 dB 值, False=线性值
             input_theta_range: CSV 数据覆盖的 θ 范围 (默认 -180~180)
@@ -145,7 +156,7 @@ class ElementPattern:
             # 读取数据 — 行号 i 对应 theta = _row0_theta + i * oriDegStep
             raw = []
             row_start = int(round((theta_start - _row0_theta) / oriDegStep))
-            row_end = int(round((theta_end - _row0_theta) / oriDegStep))
+            row_end = int(round((theta_end - _row0_theta) / oriDegStep)) + 1
             with open(csv_path, "r") as f:
                 reader = csv.reader(f)
                 for i, row in enumerate(reader):
