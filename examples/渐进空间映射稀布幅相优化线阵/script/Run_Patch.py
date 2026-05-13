@@ -253,7 +253,7 @@ def run_patch_simulation(
     report_type = f"{results_function}({results_category})"
     phi_entries = "All" if not results_phi_sections else [f"{p}deg" for p in results_phi_sections]
     report_name = results_category
-    export_path = os.path.join(results_dir, f"{report_type}.csv")
+    export_path = os.path.normpath(os.path.join(results_dir, f"{report_type}.csv"))
 
     oModule.CreateReport(report_name, "Far Fields", "Rectangular Plot",
         "Setup1 : LastAdaptive",
@@ -270,7 +270,17 @@ def run_patch_simulation(
         oModule.ExportUniformPointsToFile(report_name, export_path,
             f"{theta_start}deg", f"{theta_stop}deg",
             f"{theta_step}deg", True, "", False, True)
-        print(f"Exported to {export_path}")
+        # 检查文件是否实际导出（COM 中文路径可能静默失败）
+        if not os.path.isfile(export_path):
+            # 尝试在 results_dir 下查找刚创建的 CSV
+            csvs = [f for f in os.listdir(results_dir) if f.endswith(".csv")]
+            if csvs:
+                export_path = os.path.join(results_dir, csvs[-1])
+                print(f"Exported to {export_path} (detected)")
+            else:
+                print(f"Export call succeeded but file not found: {export_path}")
+        else:
+            print(f"Exported to {export_path}")
     except Exception as ex:
         print(f"Export error: {ex}")
 
