@@ -83,90 +83,105 @@ from .analysis import get_psll, _find_peaks
 TWO_PI = 2 * np.pi
 _SIGMOID_CLIP = 20.0
 
-class SparseArrayProblem:
-    """稀布阵列优化问题。"""
+
+class BeamformingProblem:
+    """波束成形优化基类 — 统一处理位置/相位/幅度的解码与 AF 计算。
+
+    子类只需实现 fitness(x) 来定义具体的优化目标。
+    """
 
     def __init__(
         self,
         mapper: LMMapper,
         pattern: Pattern,
-        mode: int = 100,
+        *,
+        position_source: Union[str, bool] = True,
+        amplitude_source: Union[str, bool] = "default",
+        amplitude_bounds: tuple[float, float] = (0.0, 1.0),
+        phase_source: Union[str, bool] = "default",
+        optimize_half_amp_phase: bool = False,
         init_positions: Optional[np.ndarray] = None,
         init_phases_deg: Optional[np.ndarray] = None,
         init_amplitudes: Optional[np.ndarray] = None,
-        amplitude_bounds: tuple[float, float] = (0.0, 1.0),
-        target_hpbw: float = 180.0,
-        mainlobe_region: Optional[tuple] = None,
         element_patterns: Optional[list] = None,
         use_pointing_penalty: bool = True,
-        optimize_half_amp_phase: bool = False,
     ):
-        # 解码 mode: 百位=位置, 十位=相位, 个位=幅度
-        p_mode = (mode // 100) % 10
-        h_mode = (mode // 10) % 10
-        a_mode = mode % 10
-
-        if p_mode not in (1, 2):
-            raise ValueError(f"mode={mode}: 百位(位置)必须是 1 或 2")
-        if h_mode not in (0, 1, 2) or a_mode not in (0, 1, 2):
-            raise ValueError(f"mode={mode}: 十位/个位必须是 0/1/2")
-        if 1 not in (p_mode, h_mode, a_mode):
-            raise ValueError(f"mode={mode}: 至少一位为 1")
-
         self.mapper = mapper
         self.pattern = pattern
-        self.mode = mode
-        self._p_mode = p_mode
-        self._h_mode = h_mode
-        self._a_mode = a_mode
-        self.init_positions = init_positions
-        self.init_phases_deg = init_phases_deg
-        self.init_amplitudes = init_amplitudes
-        self.amplitude_lower, self.amplitude_upper = amplitude_bounds
-        self.target_hpbw = target_hpbw
-        self.mainlobe_region = mainlobe_region
         self.element_patterns = element_patterns
         self.use_pointing_penalty = use_pointing_penalty
-
-        # 仅优化一半阵元的幅度和相位 (对称阵列时左半边自动镜像)
         self.optimize_half_amp_phase = optimize_half_amp_phase
+        self.amplitude_lower, self.amplitude_upper = amplitude_bounds
+
+        # ── 解析 position_source ──
+        if position_source is True:
+            self._p_mode = 1  # 优化
+            self.init_positions = None
+        elif isinstance(position_source, str):
+            self._p_mode = 2  # 导入
+            self.init_positions = init_positions
+        else:
+            raise ValueError(f"position.source 必须是 true 或文件路径, 得到 {position_source!r}")
+
+        # ── 解析 amplitude_source ──
+        if amplitude_source is True or amplitude_source == "optimize":
+            self._a_mode = 1  # 优化
+            self.init_amplitudes = None
+        elif amplitude_source == "default":
+            self._a_mode = 0  # 默认全1
+            self.init_amplitudes = None
+        elif isinstance(amplitude_source, str):
+            self._a_mode = 2  # 导入
+            self.init_amplitudes = init_amplitudes
+        else:
+            raise ValueError(f"amplitude.source 必须是 optimize/default/文件路径, 得到 {amplitude_source!r}")
+
+        # ── 解析 phase_source ──
+        if phase_source is True or phase_source == "optimize":
+            self._h_mode = 1  # 优化
+            self.init_phases_deg = None
+        elif phase_source == "default":
+            self._h_mode = 0  # 默认全0
+            self.init_phases_deg = None
+        elif isinstance(phase_source, str):
+            self._h_mode = 2  # 导入
+            self.init_phases_deg = init_phases_deg
+        else:
+            raise ValueError(f"phase.source 必须是 optimize/default/文件路径, 得到 {phase_source!r}")
+
+        # ── 对称半优化校验 ──
         if optimize_half_amp_phase:
-            if p_mode == 1 and not mapper.is_symmetric:
+            if self._p_mode == 1 and not mapper.is_symmetric:
                 warnings.warn("optimizeHalfAmpPhase=True 但 mapper 不对称，已忽略")
                 self.optimize_half_amp_phase = False
-            elif p_mode == 2:
+            elif self._p_mode == 2:
                 if init_positions is not None and not _is_positions_symmetric(init_positions):
                     warnings.warn("optimizeHalfAmpPhase=True 但导入位置不对称，已忽略")
                     self.optimize_half_amp_phase = False
                 elif init_positions is None and not mapper.is_symmetric:
                     warnings.warn("optimizeHalfAmpPhase=True 但 mapper 不对称，已忽略")
                     self.optimize_half_amp_phase = False
-            if not (h_mode == 1 or a_mode == 1):
+            if not (self._h_mode == 1 or self._a_mode == 1):
                 warnings.warn("optimizeHalfAmpPhase=True 但无幅相变量可优化，已忽略")
                 self.optimize_half_amp_phase = False
 
-        # 变量维度
-        self.n_pos = mapper.n_vars if p_mode == 1 else 0
-        if h_mode == 1:
-            self.n_phase = self._half_n() if self.optimize_half_amp_phase else mapper.Ne
-        else:
-            self.n_phase = 0
-        if a_mode == 1:
-            self.n_amp = self._half_n() if self.optimize_half_amp_phase else mapper.Ne
-        else:
-            self.n_amp = 0
+        # ── 变量维度 ──
+        self.n_pos = mapper.n_vars if self._p_mode == 1 else 0
+        self.n_phase = self._half_n() if self._h_mode == 1 and self.optimize_half_amp_phase else (
+            mapper.Ne if self._h_mode == 1 else 0)
+        self.n_amp = self._half_n() if self._a_mode == 1 and self.optimize_half_amp_phase else (
+            mapper.Ne if self._a_mode == 1 else 0)
         self.n_vars = self.n_pos + self.n_phase + self.n_amp
+
+        # ── 主瓣指向索引 ──
+        self._main_idx = int(np.argmin(np.abs(self.pattern.theta_deg - self.pattern.theta0s_deg[0])))
 
     def _half_n(self) -> int:
         """对称半阵元变量数: halfNe + has_center。"""
         return self.mapper._halfNe + (1 if self.mapper.has_center else 0)
 
     def _expand_half(self, half_vals):
-        """半阵元变量 → 全阵元数组 (镜像左半边)。
-
-        half_vals 布局: [center(可选), right_half...]
-        返回: [left_half_mirror, center(可选), right_half]
-        """
+        """半阵元变量 → 全阵元数组 (镜像左半边)。"""
         hN = self.mapper._halfNe
         has_c = self.mapper.has_center
         full = np.empty(self.mapper.Ne)
@@ -179,22 +194,18 @@ class SparseArrayProblem:
         full[:hN] = right[::-1]
         return full
 
-    @staticmethod
-    def _sigmoid(x: np.ndarray) -> np.ndarray:
-        x = np.clip(x, -_SIGMOID_CLIP, _SIGMOID_CLIP)
-        return 1.0 / (1.0 + np.exp(-x))
-
-    def fitness(self, x: np.ndarray) -> float:
+    def _decode(self, x: np.ndarray):
+        """解码变量向量 → (pos, phases_rad, amplitudes)。"""
         x = np.asarray(x, dtype=float)
         Ne = self.mapper.Ne
 
-        # 1. 位置
+        # 位置
         if self._p_mode == 1:
             pos = self.mapper.synthesize(x[:self.n_pos])
-        else:  # _p_mode == 2
+        else:
             pos = self.init_positions
 
-        # 2. 相位 — 变量 ∈ [0, 2π], 无 sigmoid
+        # 相位
         if self._h_mode == 1:
             raw = x[self.n_pos:self.n_pos + self.n_phase]
             phases = self._expand_half(raw) if self.optimize_half_amp_phase else raw
@@ -203,7 +214,7 @@ class SparseArrayProblem:
         else:
             phases = np.zeros(Ne)
 
-        # 3. 幅度 — 变量 ∈ [amp_lower, amp_upper], 无 sigmoid
+        # 幅度
         if self._a_mode == 1:
             raw = x[-self.n_amp:]
             amps = self._expand_half(raw) if self.optimize_half_amp_phase else raw
@@ -212,11 +223,13 @@ class SparseArrayProblem:
         else:
             amps = np.ones(Ne)
 
-        # 4. 计算 AF
+        return pos, phases, amps
+
+    def _compute_af(self, pos, amps, phases):
+        """计算 AF × 单元方向图, 返回复数 AF。"""
         if self.pattern.is_planar:
             af = self.pattern.planar_af(pos, np.zeros_like(pos), amps, phases)
         elif self.mapper.is_symmetric and self.optimize_half_amp_phase:
-            # 半阵元优化: _expand_half 已镜像，用 linear_af_symmetric
             halfNe = self.mapper._halfNe
             offset = 1 if self.mapper.has_center else 0
             kwargs = dict(has_center=self.mapper.has_center,
@@ -227,20 +240,67 @@ class SparseArrayProblem:
                 kwargs["center_phase"] = phases[halfNe]
             af = self.pattern.linear_af_symmetric(pos[halfNe + offset:], **kwargs)
         else:
-            # 全阵元优化 (含对称位置+全幅相): 用 linear_af 计算全部变量
             af = self.pattern.linear_af(pos, amps, phases)
 
-        # 单元方向图乘积: pattern = Fe * |AF|  (C++ readFeMultiFreqFromCsvs)
         if self.element_patterns is not None:
             af_mag = np.abs(af)
-            if af.ndim == 1:  # 单频线阵 (Nθ,)
+            if af.ndim == 1:
                 af = af_mag * self.element_patterns[0]
-            else:             # 多频线阵 (Nf, Nθ)
+            else:
                 for i in range(len(self.element_patterns)):
                     af[i] = af_mag[i] * self.element_patterns[i]
-        af_db = Pattern.to_dB(af)
+        return af
 
-        # 5. PSLL — 线阵多频/多角度时取各子方向图最差 PSLL
+    def _get_af_db(self, x):
+        """解码变量 + 计算 AF + 转 dB, 返回 af_db (可能多维)。"""
+        pos, phases, amps = self._decode(x)
+        af = self._compute_af(pos, amps, phases)
+        return Pattern.to_dB(af)
+
+    def _flatten_af_db(self, af_db):
+        """将 af_db 展为 (Nsub, Nθ)。"""
+        if af_db.ndim > 1:
+            return af_db.reshape(-1, af_db.shape[-1])
+        return af_db[None, :]
+
+    def fitness(self, x: np.ndarray) -> float:
+        raise NotImplementedError
+
+    def get_result(self, x_opt: np.ndarray) -> dict:
+        x = np.asarray(x_opt, dtype=float)
+        pos, phases, amps = self._decode(x)
+        r = {"positions": pos}
+        r["phases_deg"] = np.rad2deg(phases)
+        r["amplitudes"] = amps
+        return r
+
+
+class SidelobeProblem(BeamformingProblem):
+    """副瓣电平优化问题。
+
+    适应度: psll + pointing_penalty + hpbw_penalty
+    """
+
+    def __init__(
+        self,
+        mapper: LMMapper,
+        pattern: Pattern,
+        *,
+        target_psll: Optional[float] = None,
+        target_hpbw: float = 180.0,
+        mainlobe_region: Optional[tuple] = None,
+        **kwargs,
+    ):
+        super().__init__(mapper, pattern, **kwargs)
+        self.target_psll = target_psll
+        self.target_hpbw = target_hpbw
+        self.mainlobe_region = mainlobe_region
+
+    def fitness(self, x: np.ndarray) -> float:
+        af_db = self._get_af_db(x)
+        af_flat = self._flatten_af_db(af_db)
+
+        # PSLL
         if self.pattern.is_planar:
             pslls, _ = get_psll(af_db, self.pattern.theta_deg, self.pattern.phi_deg,
                                 mainlobe_region=self.mainlobe_region)
@@ -254,24 +314,18 @@ class SparseArrayProblem:
             if af_db.ndim == 1:
                 psll_val, _ = get_psll(af_db, self.pattern.theta_deg, mainlobe_region=mr_1d)
             else:
-                # 多频/多角度线阵: 展平遍历
-                af_flat = af_db.reshape(-1, af_db.shape[-1])
                 psll_val = -np.inf
                 for sub in range(af_flat.shape[0]):
                     v, _ = get_psll(af_flat[sub], self.pattern.theta_deg, mainlobe_region=mr_1d)
                     if not np.isinf(v) and v > psll_val:
                         psll_val = v
 
-        # 6. 主瓣指向惩罚 (C++ mainBeamPointPunishment)
-        #    多频/多角度时遍历每个子方向图取最大惩罚
-        pointing_penalty = 0.0
+        # 主瓣指向惩罚
+        pointing = 0.0
         if self.use_pointing_penalty and not self.pattern.is_planar:
-            from .analysis import _find_peaks  # noqa
-            # 将 af_db 展为 (Nsub, Nθ) 以便遍历
-            af_db_flat = af_db.reshape(-1, af_db.shape[-1])
-            for sub in range(af_db_flat.shape[0]):
-                pattern_1d = af_db_flat[sub]
-                # 该子方向图对应的指向角索引
+            from .analysis import _find_peaks
+            for sub in range(af_flat.shape[0]):
+                pattern_1d = af_flat[sub]
                 scan_idx = sub % len(self.pattern.theta0s_deg)
                 target_idx = int(np.argmin(
                     np.abs(self.pattern.theta_deg - self.pattern.theta0s_deg[scan_idx])))
@@ -284,19 +338,18 @@ class SparseArrayProblem:
                             main_idx = cur
                     else:
                         break
-                pointing_penalty = max(pointing_penalty,
-                                       abs(main_idx - target_idx) * 100.0)
+                pointing = max(pointing, abs(main_idx - target_idx) * 100.0)
 
-        # 7. HPBW 惩罚
-        penalty = 0.0
+        # HPBW 惩罚
+        hpbw_pen = 0.0
         if self.target_hpbw < 180.0:
             hpbw = self._compute_hpbw(af_db)
             if hpbw > self.target_hpbw:
-                penalty = (hpbw - self.target_hpbw) * 100.0
+                hpbw_pen = (hpbw - self.target_hpbw) * 100.0
 
-        return float(psll_val) + pointing_penalty + penalty
+        return float(psll_val) + pointing + hpbw_pen
 
-    def _compute_hpbw(self, af_db: np.ndarray) -> float:
+    def _compute_hpbw(self, af_db):
         if self.pattern.is_planar:
             j0 = np.argmin(np.abs(self.pattern.phi_deg))
             pattern_1d = af_db[:, j0]
@@ -310,40 +363,94 @@ class SparseArrayProblem:
         dtheta = abs(self.pattern.theta_deg[1] - self.pattern.theta_deg[0])
         return (right_idx - left_idx) * dtheta
 
-    def get_result(self, x_opt: np.ndarray) -> dict:
-        x = np.asarray(x_opt, dtype=float)
-        r = {}
-        if self._p_mode == 1:
-            r["positions"] = self.mapper.synthesize(x[:self.n_pos])
-        else:  # _p_mode == 2
-            r["positions"] = self.init_positions
 
-        if self._h_mode == 1:
-            raw = x[self.n_pos:self.n_pos + self.n_phase]
-            if self.optimize_half_amp_phase:
-                r["phases_deg"] = np.rad2deg(self._expand_half(raw))
-            else:
-                r["phases_deg"] = np.rad2deg(raw)
-        elif self._h_mode == 2:
-            r["phases_deg"] = self.init_phases_deg
-        else:
-            r["phases_deg"] = np.zeros_like(r["positions"])
+class NullSteeringProblem(BeamformingProblem):
+    """零陷优化问题。
 
-        if self._a_mode == 1:
-            raw = x[-self.n_amp:]
-            if self.optimize_half_amp_phase:
-                r["amplitudes"] = self._expand_half(raw)
-            else:
-                r["amplitudes"] = raw
-        elif self._a_mode == 2:
-            r["amplitudes"] = self.init_amplitudes
-        else:
-            r["amplitudes"] = np.ones_like(r["positions"])
+    适应度: w_ml·pointing + w_null·depth + w_valley·valley + w_sll·psll
+    """
 
-        return r
+    def __init__(
+        self,
+        mapper: LMMapper,
+        pattern: Pattern,
+        *,
+        null_angle_deg: float = 80.0,
+        null_target_db: float = -40.0,
+        sll_target_db: float = -15.0,
+        null_window_half_deg: float = 5.0,
+        null_margin_db: float = 0.0,
+        weights: Optional[dict] = None,
+        **kwargs,
+    ):
+        super().__init__(mapper, pattern, **kwargs)
+
+        self.null_angle_deg = float(null_angle_deg)
+        self.null_target_db = float(null_target_db)
+        self.sll_target_db = float(sll_target_db)
+        self.null_window_half_deg = float(null_window_half_deg)
+        self.null_margin_db = float(null_margin_db)
+
+        w = weights or {}
+        self.w_ml = float(w.get("pointing", 0.5))
+        self.w_null = float(w.get("null_depth", 3.0))
+        self.w_valley = float(w.get("valley", 1.0))
+        self.w_sll = float(w.get("sll", 5.0))
+
+        # 零陷窗口索引
+        self._null_idx = int(np.argmin(np.abs(self.pattern.theta_deg - self.null_angle_deg)))
+        hw = int(round(self.null_window_half_deg / abs(self.pattern.theta_deg[1] - self.pattern.theta_deg[0])))
+        self._null_win = slice(max(0, self._null_idx - hw),
+                               min(len(self.pattern.theta_deg), self._null_idx + hw + 1))
+
+    def fitness(self, x: np.ndarray) -> float:
+        af_db = self._get_af_db(x)
+        af_flat = self._flatten_af_db(af_db)
+
+        total_fit = 0.0
+        for sub in range(af_flat.shape[0]):
+            p = af_flat[sub]
+
+            # PSLL
+            psll_val, _ = get_psll(p, self.pattern.theta_deg)
+            psll_pt = max(0.0, psll_val - self.sll_target_db)
+
+            # 主瓣指向惩罚
+            pointing = 0.0
+            if self.use_pointing_penalty:
+                from .analysis import _find_peaks
+                indices, extrema = _find_peaks(p)
+                main_idx = indices[0]
+                for j in range(1, len(indices)):
+                    if abs(extrema[j]) < 1e-6:
+                        cur = indices[j]
+                        if abs(cur - self._main_idx) < abs(main_idx - self._main_idx):
+                            main_idx = cur
+                    else:
+                        break
+                pointing = abs(main_idx - self._main_idx) * 0.5
+
+            # 零陷深度惩罚
+            min_null = np.max(p[self._null_win])
+            depth_pen = max(0.0, min_null - self.null_target_db)
+
+            # 谷形质量惩罚
+            win = self._null_win
+            edge_val = min(p[win.start] if win.start > 0 else p[0],
+                           p[win.stop - 1] if win.stop < len(p) else p[-1])
+            valley_depth = p[self._null_idx] - edge_val
+            valley_pen = max(0.0, valley_depth + self.null_margin_db)
+
+            total_fit += (self.w_ml * pointing
+                          + self.w_null * depth_pen
+                          + self.w_valley * valley_pen
+                          + self.w_sll * psll_pt)
+
+        return float(total_fit)
 
 
-
+# 向后兼容别名
+SparseArrayProblem = SidelobeProblem
 class Base(ABC):
     """优化器基类。子类在 __init__ 中接收自己的超参数。"""
 

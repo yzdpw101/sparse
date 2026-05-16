@@ -1,0 +1,64 @@
+{
+  "$schema": "./Config.schema.json",
+  "frequenciesGHz": [ 11.4 ],
+  "randomSeed": null,
+  "aspectAngle": {
+    "thetaDeg": [
+      -90,
+      90,
+      0.1
+    ],
+    "theta0sDeg": [ 0 ]
+  },
+  "position": {
+    "source": "input/array_config/uniform_126.json",
+    "symmetric": false,
+    "fixedAperture": true,
+    "Ne": 17,
+    "L_wavelength": 9.875,
+    "dmin_wavelength": 0.5
+  },
+  "amplitude": {
+    "source": "optimize",
+    "bounds": [ 0.0, 1.0 ],
+    "optimizeHalf": false
+  },
+  "phase": {
+    "source": "default",
+    "optimizeHalf": false
+  },
+  "target": {
+    "type": "null",
+    "nullAngleDeg": 20,
+    "nullTargetDb": -50,
+    "sllTargetDb": -30,
+    "nullWindowHalfDeg": 5,
+    "nullMarginDb": 0,
+    "weights": {
+      "pointing": 0.5,
+      "null_depth": 3,
+      "valley": 1,
+      "sll": 5
+    }
+  },
+  "ePattern": {
+    "enabled": true,
+    "csvDirectory": "input/element_pattern/kty/phi90",
+    "thetaDeg": [
+      -90,
+      90,
+      0.01
+    ],
+    "isGain": true,
+    "inDB": true
+  },
+  "optimizer": {
+    "sigma": 0.65,
+    "pop_size": null,
+    "max_iter": 1000,
+    "n_jobs": -1,
+    "verbose": true,
+    "stopFitness": 0.0,
+    "resume": false
+  }
+}

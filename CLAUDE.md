@@ -29,7 +29,9 @@ sparse/
 │   └── 神经网络/
 │       ├── 学习/                   # 神经网络基础概念 + demo
 │       ├── PCNN复现/               # PyTorch autograd + L-BFGS-B
-│       └── 初步工程/               # NN 代理模型 (PSLLNet)
+│       ├── 初步工程/               # NN 代理模型 (PSLLNet)
+│       ├── NN优化器/               # GRU 学习优化策略 (端到端可微分)
+│       └── NNP/                    # Neural Network Parameterization (可微分参数化优化)
 └── docs/                           # 优化器/映射对比文档 + agent 文档
 ```
 
@@ -52,6 +54,12 @@ sparse/
 - **有界 > 无界**: 全场景下 bounded [0,1] 优于 unbounded sigmoid (位置 +0.5dB, 幅度 +29dB)
 - **132元/90.5λ** 达到 -27.02 dB (超过论文 DMDE -25.49)
 - **空间映射**: PE CMA-ES 配合粗/细模型误差函数不收敛，待研究
+- **NNP (Neural Network Parameterization)**: 可微分参数化优化方法
+  - 用 NN 参数化解: x = NN(θ), sigmoid 输出 (0,1)
+  - 直接最小化 f(NN(θ)), 反向传播更新 θ
+  - 无需预训练, 每个任务独立在线优化
+  - Rastrigin/Griewank 10D 收敛到 0, Rosenbrock 达到 0.064
+  - 修复 Ackley sqrt(0) 梯度无穷大问题 (加 1e-12 epsilon)
 
 ## 开发约定
 

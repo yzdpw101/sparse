@@ -11,6 +11,7 @@
 - **单元方向图**: HFSS 导出多频 CSV 导入
 - **断点续跑**: 中断后自动恢复，跑完清理缓存
 - **物理信息优化**: PyTorch autograd + L-BFGS-B 梯度优化 (PCNN 复现)
+- **NNP**: Neural Network Parameterization — 用 NN 参数化解, 端到端可微分优化
 
 ## 安装
 
@@ -50,7 +51,9 @@ sparse/
 │   └── 神经网络/
 │       ├── 学习/                   # 神经网络基础概念 + demo
 │       ├── PCNN复现/               # PyTorch autograd + L-BFGS-B
-│       └── 初步工程/               # NN 代理模型 (PSLLNet)
+│       ├── 初步工程/               # NN 代理模型 (PSLLNet)
+│       ├── NN优化器/               # GRU 学习优化策略 (端到端可微分)
+│       └── NNP/                    # Neural Network Parameterization (可微分参数化优化)
 └── docs/                           # 优化器/映射对比文档 + agent 文档
 ```
 
