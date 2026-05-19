@@ -1,0 +1,345 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "稀布阵列优化配置",
+  "description": "波束成形优化工程配置文件。source 取值: 'optimize'=优化, 'default'=默认值, 字符串=文件路径",
+
+  "type": "object",
+  "required": ["frequenciesGHz", "aspectAngle", "position", "amplitude", "phase", "target", "optimizer"],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "frequenciesGHz": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0 },
+      "minItems": 1,
+      "description": "工作频率列表 (GHz), 升序排列"
+    },
+
+    "randomSeed": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "随机种子, null=随机"
+    },
+
+    "aspectAngle": {
+      "type": "object",
+      "required": ["thetaDeg", "theta0sDeg"],
+      "properties": {
+        "thetaDeg": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "description": "[起始角, 终止角, 步长] (度)"
+        },
+        "theta0sDeg": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 1,
+          "description": "波束指向角列表 (度)"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "position": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "description": "true=优化位置, 字符串=从文件导入位置"
+        },
+        "symmetric": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否对称阵列 (source=true 时有效)"
+        },
+        "fixedAperture": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否固定孔径 (source=true 时有效)"
+        },
+        "Ne": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "阵元数 (source=true 时有效)"
+        },
+        "L_wavelength": {
+          "type": "number",
+          "minimum": 0,
+          "description": "阵列孔径 (波长数, source=true 时有效)"
+        },
+        "dmin_wavelength": {
+          "type": "number",
+          "minimum": 0,
+          "description": "最小间距 (波长数, source=true 时有效)"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "amplitude": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "description": "'optimize'=优化, 'default'=全1, 字符串=从文件导入"
+        },
+        "bounds": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2,
+          "default": [0.0, 1.0],
+          "description": "[下界, 上界] (source=optimize 时有效)"
+        },
+        "optimizeHalf": {
+          "type": "boolean",
+          "default": false,
+          "description": "只优化对称半阵元 (source=optimize + 对称阵列时有效)"
+        },
+        "step": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "最小优化步长, null=不限"
+        },
+        "inDB": {
+          "type": "boolean",
+          "default": false,
+          "description": "优化变量为 dB 值 (转换: linear=10^(-dB/20)), step 也在 dB 空间"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "phase": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "description": "'optimize'=优化, 'default'=全0, 字符串=从文件导入"
+        },
+        "optimizeHalf": {
+          "type": "boolean",
+          "default": false,
+          "description": "只优化对称半阵元 (source=optimize + 对称阵列时有效)"
+        },
+        "step": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "最小优化步长 (弧度), null=不限"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "target": {
+      "type": "object",
+      "required": ["type"],
+      "description": "优化目标配置",
+      "defaultSnippets": [
+        {
+          "label": "副瓣优化 (sidelobe)",
+          "body": {
+            "type": "sidelobe",
+            "targetPSLL": null,
+            "targetHPBW": null,
+            "mainLobePointingPenalty": true
+          }
+        },
+        {
+          "label": "零陷优化 (null)",
+          "body": {
+            "type": "null",
+            "nullAngleDeg": 80.0,
+            "nullTargetDb": -40.0,
+            "sllTargetDb": -15.0,
+            "nullWindowHalfDeg": 5.0,
+            "nullMarginDb": 0.0,
+            "weights": {
+              "pointing": 0.5,
+              "null_depth": 3.0,
+              "valley": 1.0,
+              "sll": 5.0
+            }
+          }
+        },
+        {
+          "label": "三零陷优化 (triple_null)",
+          "body": {
+            "type": "triple_null",
+            "nullAnglesDeg": [55.0, 70.0, 85.0],
+            "nullTargetDb": -40.0,
+            "sllTargetDb": -15.0,
+            "nullWindowHalfDeg": 5.0,
+            "nullMarginDb": 0.0,
+            "weights": {
+              "pointing": 0.5,
+              "null_depth": 2.0,
+              "edge_dip": 1.0,
+              "sll": 2.0
+            }
+          }
+        }
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["sidelobe", "null", "triple_null"],
+          "description": "优化任务类型"
+        },
+        "targetPSLL": {
+          "type": ["number", "null"],
+          "default": null,
+          "description": "目标副瓣电平 (dB), 达到后停止迭代, null=不停 (type=sidelobe)"
+        },
+        "targetHPBW": {
+          "type": ["number", "null"],
+          "default": null,
+          "description": "目标半功率波束宽度 (度), null=不限制 (type=sidelobe)"
+        },
+        "gainDropLimitDb": {
+          "description": "主瓣增益下降约束 (type=sidelobe): null=不限, [\"abs\", dB]=绝对上限, [\"rel\", dB]=相对全1激励"
+        },
+        "directivityLimitDbi": {
+          "description": "方向性系数约束 (type=sidelobe): null=不限, [\"abs\", dBi]=绝对下限, [\"rel\", dBi]=相对全1激励下限"
+        },
+        "mainLobePointingPenalty": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否启用主瓣指向惩罚 (type=sidelobe)"
+        },
+        "nullAngleDeg": {
+          "type": "number",
+          "default": 80.0,
+          "description": "零陷角度 (度) (type=null)"
+        },
+        "nullTargetDb": {
+          "type": "number",
+          "default": -40.0,
+          "description": "零陷深度目标 (dB) (type=null)"
+        },
+        "sllTargetDb": {
+          "type": "number",
+          "default": -15.0,
+          "description": "副瓣目标 (dB) (type=null)"
+        },
+        "nullWindowHalfDeg": {
+          "type": "number",
+          "minimum": 0,
+          "default": 5.0,
+          "description": "零陷窗口半宽 (度) (type=null)"
+        },
+        "nullMarginDb": {
+          "type": "number",
+          "default": 0.0,
+          "description": "谷形余量 (dB) (type=null/triple_null)"
+        },
+        "nullAnglesDeg": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3,
+          "default": [55.0, 70.0, 85.0],
+          "description": "三零陷角度 (度) (type=triple_null)"
+        },
+        "weights": {
+          "type": "object",
+          "description": "惩罚项权重 (type=null/triple_null)",
+          "properties": {
+            "pointing": { "type": "number", "minimum": 0, "default": 0.5 },
+            "null_depth": { "type": "number", "minimum": 0, "default": 3.0 },
+            "valley": { "type": "number", "minimum": 0, "default": 1.0 },
+            "edge_dip": { "type": "number", "minimum": 0, "default": 1.0 },
+            "sll": { "type": "number", "minimum": 0, "default": 5.0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "ePattern": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否启用单元方向图"
+        },
+        "csvDirectory": {
+          "type": ["string", "null"],
+          "description": "单元方向图 CSV 目录"
+        },
+        "thetaDeg": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "description": "[起始角, 终止角, 步长] (度)"
+        },
+        "isGain": {
+          "type": "boolean",
+          "default": true,
+          "description": "CSV 数据是否为增益 (非方向性系数)"
+        },
+        "inDB": {
+          "type": "boolean",
+          "default": true,
+          "description": "CSV 数据是否为 dB 格式"
+        },
+        "aepMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "AEP 模式: 目录下为 aep_elem_*.csv (每单元每频率一个文件)"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "optimizer": {
+      "type": "object",
+      "required": ["max_iter"],
+      "properties": {
+        "sigma": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.5,
+          "description": "CMA-ES 初始步长"
+        },
+        "pop_size": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "default": null,
+          "description": "种群大小, null=自动"
+        },
+        "max_iter": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "最大迭代次数"
+        },
+        "n_jobs": {
+          "type": "integer",
+          "default": -1,
+          "description": "并行线程数, -1=自动"
+        },
+        "verbose": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否打印迭代日志"
+        },
+        "stopFitness": {
+          "type": ["number", "null"],
+          "default": null,
+          "description": "停止适应度阈值, null=不停"
+        },
+        "resume": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否从断点恢复"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

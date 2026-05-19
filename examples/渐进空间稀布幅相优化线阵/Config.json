@@ -1,0 +1,66 @@
+{
+  "$schema": "./Config.schema.json",
+  "frequenciesGHz": [2.45],
+  "randomSeed": 42,
+
+  "aspectAngle": {
+    "thetaDeg": [-90, 90, 0.1],
+    "theta0sDeg": [0]
+  },
+
+  "position": {
+    "source": "input/array_config/uniform_4_0p5wl_2.45Ghz.json",
+    "symmetric": false,
+    "fixedAperture": true
+  },
+  "amplitude": {
+    "source": "default",
+    "bounds": [0.0, 1.0],
+    "optimizeHalf": false
+  },
+  "phase": {
+    "source": "optimize",
+    "optimizeHalf": false
+  },
+
+  "target": {
+    "type": "sidelobe",
+    "targetPSLL": null,
+    "targetHPBW": null,
+    "mainLobePointingPenalty": true
+  },
+
+  "ePattern": {
+    "enabled": true,
+    "csvDirectory": "input/element_pattern/aep_4elem",
+    "thetaDeg": [-180, 180, 0.01],
+    "isGain": true,
+    "inDB": false,
+    "aepMode": true
+  },
+
+  "optimizer": {
+    "sigma": 0.5,
+    "pop_size": null,
+    "max_iter": 500,
+    "n_jobs": -1,
+    "verbose": true,
+    "stopFitness": null,
+    "resume": false
+  },
+
+  "asm": {
+    "maxIterations": 10,
+    "targetFinePSLL": -30.0,
+    "targetResNorm": 0.001,
+    "pe": {
+      "method": "cma",
+      "sigma": 0.3,
+      "pop_size": null,
+      "max_iter": 500,
+      "n_jobs": -1,
+      "verbose": true,
+      "stopFitness": 0.001
+    }
+  }
+}

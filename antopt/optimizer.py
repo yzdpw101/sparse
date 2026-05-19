@@ -98,8 +98,12 @@ class BeamformingProblem:
         position_source: Union[str, bool] = True,
         amplitude_source: Union[str, bool] = "default",
         amplitude_bounds: tuple[float, float] = (0.0, 1.0),
+        amplitude_in_db: bool = False,
+        amplitude_step: Optional[float] = None,
+        phase_step_deg: Optional[float] = None,
         phase_source: Union[str, bool] = "default",
-        optimize_half_amp_phase: bool = False,
+        optimize_half_amp: bool = False,
+        optimize_half_phase: bool = False,
         init_positions: Optional[np.ndarray] = None,
         init_phases_deg: Optional[np.ndarray] = None,
         init_amplitudes: Optional[np.ndarray] = None,
@@ -110,8 +114,10 @@ class BeamformingProblem:
         self.pattern = pattern
         self.element_patterns = element_patterns
         self.use_pointing_penalty = use_pointing_penalty
-        self.optimize_half_amp_phase = optimize_half_amp_phase
         self.amplitude_lower, self.amplitude_upper = amplitude_bounds
+        self.amplitude_in_db = amplitude_in_db
+        self._amp_step = amplitude_step  # dB (if in_db) 或线性步长
+        self._phs_step_rad = np.deg2rad(phase_step_deg) if phase_step_deg else None
 
         # ── 解析 position_source ──
         if position_source is True:
@@ -120,8 +126,12 @@ class BeamformingProblem:
         elif isinstance(position_source, str):
             self._p_mode = 2  # 导入
             self.init_positions = init_positions
+        elif isinstance(position_source, (np.ndarray, list)):
+            # 直接传入位置数组, 固定不动
+            self._p_mode = 2  # 导入 (不优化位置)
+            self.init_positions = np.asarray(position_source, dtype=float)
         else:
-            raise ValueError(f"position.source 必须是 true 或文件路径, 得到 {position_source!r}")
+            raise ValueError(f"position.source 必须是 true/文件路径/数组, 得到 {position_source!r}")
 
         # ── 解析 amplitude_source ──
         if amplitude_source is True or amplitude_source == "optimize":
@@ -150,26 +160,34 @@ class BeamformingProblem:
             raise ValueError(f"phase.source 必须是 optimize/default/文件路径, 得到 {phase_source!r}")
 
         # ── 对称半优化校验 ──
-        if optimize_half_amp_phase:
-            if self._p_mode == 1 and not mapper.is_symmetric:
-                warnings.warn("optimizeHalfAmpPhase=True 但 mapper 不对称，已忽略")
-                self.optimize_half_amp_phase = False
-            elif self._p_mode == 2:
-                if init_positions is not None and not _is_positions_symmetric(init_positions):
-                    warnings.warn("optimizeHalfAmpPhase=True 但导入位置不对称，已忽略")
-                    self.optimize_half_amp_phase = False
-                elif init_positions is None and not mapper.is_symmetric:
-                    warnings.warn("optimizeHalfAmpPhase=True 但 mapper 不对称，已忽略")
-                    self.optimize_half_amp_phase = False
-            if not (self._h_mode == 1 or self._a_mode == 1):
-                warnings.warn("optimizeHalfAmpPhase=True 但无幅相变量可优化，已忽略")
-                self.optimize_half_amp_phase = False
+        _pos_sym = self._check_position_symmetry(mapper, init_positions, self._p_mode)
+
+        if optimize_half_amp:
+            if not _pos_sym:
+                warnings.warn("optimizeHalfAmp=True 但位置不对称，已忽略")
+                optimize_half_amp = False
+            elif self._a_mode != 1:
+                warnings.warn("optimizeHalfAmp=True 但无幅度变量可优化，已忽略")
+                optimize_half_amp = False
+
+        if optimize_half_phase:
+            if not _pos_sym:
+                warnings.warn("optimizeHalfPhase=True 但位置不对称，已忽略")
+                optimize_half_phase = False
+            elif self._h_mode != 1:
+                warnings.warn("optimizeHalfPhase=True 但无相位变量可优化，已忽略")
+                optimize_half_phase = False
+
+        self.optimize_half_amp = optimize_half_amp
+        self.optimize_half_phase = optimize_half_phase
+        # 对称 AF 公式要求幅度和相位都用 half
+        self._use_symmetric_af = (self.optimize_half_amp and self.optimize_half_phase)
 
         # ── 变量维度 ──
         self.n_pos = mapper.n_vars if self._p_mode == 1 else 0
-        self.n_phase = self._half_n() if self._h_mode == 1 and self.optimize_half_amp_phase else (
+        self.n_phase = self._half_n() if self._h_mode == 1 and self.optimize_half_phase else (
             mapper.Ne if self._h_mode == 1 else 0)
-        self.n_amp = self._half_n() if self._a_mode == 1 and self.optimize_half_amp_phase else (
+        self.n_amp = self._half_n() if self._a_mode == 1 and self.optimize_half_amp else (
             mapper.Ne if self._a_mode == 1 else 0)
         self.n_vars = self.n_pos + self.n_phase + self.n_amp
 
@@ -179,6 +197,17 @@ class BeamformingProblem:
     def _half_n(self) -> int:
         """对称半阵元变量数: halfNe + has_center。"""
         return self.mapper._halfNe + (1 if self.mapper.has_center else 0)
+
+    @staticmethod
+    def _check_position_symmetry(mapper, init_positions, p_mode):
+        """检查位置是否对称。"""
+        if p_mode == 1:
+            return mapper.is_symmetric
+        elif p_mode == 2:
+            if init_positions is not None:
+                return _is_positions_symmetric(init_positions)
+            return mapper.is_symmetric
+        return False
 
     def _expand_half(self, half_vals):
         """半阵元变量 → 全阵元数组 (镜像左半边)。"""
@@ -208,7 +237,9 @@ class BeamformingProblem:
         # 相位
         if self._h_mode == 1:
             raw = x[self.n_pos:self.n_pos + self.n_phase]
-            phases = self._expand_half(raw) if self.optimize_half_amp_phase else raw
+            if self._phs_step_rad is not None:
+                raw = np.round(raw / self._phs_step_rad) * self._phs_step_rad
+            phases = self._expand_half(raw) if self.optimize_half_phase else raw
         elif self._h_mode == 2:
             phases = np.deg2rad(self.init_phases_deg)
         else:
@@ -217,7 +248,11 @@ class BeamformingProblem:
         # 幅度
         if self._a_mode == 1:
             raw = x[-self.n_amp:]
-            amps = self._expand_half(raw) if self.optimize_half_amp_phase else raw
+            if self._amp_step is not None:
+                raw = np.round(raw / self._amp_step) * self._amp_step
+            amps = self._expand_half(raw) if self.optimize_half_amp else raw
+            if self.amplitude_in_db:
+                amps = np.power(10.0, -amps / 20.0)
         elif self._a_mode == 2:
             amps = self.init_amplitudes
         else:
@@ -229,7 +264,7 @@ class BeamformingProblem:
         """计算 AF × 单元方向图, 返回复数 AF。"""
         if self.pattern.is_planar:
             af = self.pattern.planar_af(pos, np.zeros_like(pos), amps, phases)
-        elif self.mapper.is_symmetric and self.optimize_half_amp_phase:
+        elif self._use_symmetric_af:
             halfNe = self.mapper._halfNe
             offset = 1 if self.mapper.has_center else 0
             kwargs = dict(has_center=self.mapper.has_center,
@@ -243,12 +278,40 @@ class BeamformingProblem:
             af = self.pattern.linear_af(pos, amps, phases)
 
         if self.element_patterns is not None:
-            af_mag = np.abs(af)
-            if af.ndim == 1:
-                af = af_mag * self.element_patterns[0]
+            ep = self.element_patterns
+            # AEP 模式检测: ep[0] 是 list 时为逐元方向图
+            _is_aep = isinstance(ep, list) and len(ep) > 0 and isinstance(ep[0], list)
+
+            if _is_aep:
+                # AEP: E(θ) = Σ Fe_n(θ) · A_n · exp(j·k·x_n·Δsin)
+                # ep[freq_idx][elem_idx] → Fe_n(θ), shape (Nθ,)
+                pos_arr = np.asarray(pos, dtype=float)
+                amps_arr = np.asarray(amps, dtype=float)
+                phases_arr = np.asarray(phases, dtype=float)
+                Ne = len(pos_arr)
+
+                if af.ndim == 1:
+                    af_new = np.zeros_like(af, dtype=complex)
+                    for n in range(Ne):
+                        exc_n = amps_arr[n] * np.exp(1j * phases_arr[n])
+                        phase_n = TWO_PI * pos_arr[n] * self.pattern._delta_sin
+                        af_new += ep[0][n] * exc_n * np.exp(1j * phase_n)
+                    af = af_new
+                else:
+                    af_new = np.zeros_like(af, dtype=complex)
+                    for n in range(Ne):
+                        exc_n = amps_arr[n] * np.exp(1j * phases_arr[n])
+                        phase_n = TWO_PI * pos_arr[n] * self.pattern._delta_sin
+                        af_new += ep[0][n][np.newaxis, :] * exc_n * np.exp(1j * phase_n)
+                    af = af_new
             else:
-                for i in range(len(self.element_patterns)):
-                    af[i] = af_mag[i] * self.element_patterns[i]
+                # 传统模式: |AF(θ)| × Fe(θ), 所有单元同一个方向图
+                af_mag = np.abs(af)
+                if af.ndim == 1:
+                    af = af_mag * ep[0]
+                else:
+                    for i in range(len(ep)):
+                        af[i] = af_mag[i] * ep[i]
         return af
 
     def _get_af_db(self, x):
@@ -271,15 +334,49 @@ class BeamformingProblem:
         pos, phases, amps = self._decode(x)
         r = {"positions": pos}
         r["phases_deg"] = np.rad2deg(phases)
-        r["amplitudes"] = amps
+        r["amplitudes"] = amps  # 始终是线性值 (供 AF 计算)
+
+        if self.amplitude_in_db and self._a_mode == 1:
+            # dB 值单独保存 (需量化到网格)
+            raw_amp = x[-self.n_amp:]
+            if self._amp_step is not None:
+                raw_amp = np.round(raw_amp / self._amp_step) * self._amp_step
+            if self.optimize_half_amp:
+                raw_amp = self._expand_half(raw_amp)
+            r["amplitudes_dB"] = raw_amp
+
         return r
 
 
 class SidelobeProblem(BeamformingProblem):
     """副瓣电平优化问题。
 
-    适应度: psll + pointing_penalty + hpbw_penalty
+    适应度: psll + pointing + hpbw + gain_drop + directivity
+
+    limit 参数格式:
+      - None: 不限制
+      - float: 绝对值限制
+      - [abs, rel]: 绝对 + 相对限制 (None 表示该维度不限)
     """
+
+    @staticmethod
+    def _parse_limit(val):
+        """解析 limit 参数 → (abs_val, rel_val)。
+
+        格式:
+          None → (None, None)
+          ["abs", 17.0] → (17.0, None)  绝对值
+          ["rel", 2.0] → (None, 2.0)    相对值 (和全1激励对比)
+        """
+        if val is None:
+            return None, None
+        if isinstance(val, (list, tuple)) and len(val) == 2:
+            mode, value = val[0], val[1]
+            if mode == "abs":
+                return float(value), None
+            elif mode == "rel":
+                return None, float(value)
+        return None, None
 
     def __init__(
         self,
@@ -288,6 +385,8 @@ class SidelobeProblem(BeamformingProblem):
         *,
         target_psll: Optional[float] = None,
         target_hpbw: float = 180.0,
+        gain_drop_limit_db=None,  # float | [abs, rel] | None
+        directivity_limit_dbi=None,  # float | [abs, rel] | None
         mainlobe_region: Optional[tuple] = None,
         **kwargs,
     ):
@@ -295,6 +394,36 @@ class SidelobeProblem(BeamformingProblem):
         self.target_psll = target_psll
         self.target_hpbw = target_hpbw
         self.mainlobe_region = mainlobe_region
+
+        # 解析 limit 格式: float → [float, None], list → [abs, rel], None → [None, None]
+        self._gd_abs, self._gd_rel = self._parse_limit(gain_drop_limit_db)
+        self._dir_abs, self._dir_rel = self._parse_limit(directivity_limit_dbi)
+
+        # 计算参考值 (全1幅度, 全0相位)
+        self._ref_main_gain_db = None
+        self._ref_directivity_dbi = None
+        if self._gd_rel is not None or self._dir_rel is not None:
+            ref_amps = np.ones(mapper.Ne)
+            ref_phases = np.zeros(mapper.Ne)
+            ref_af = self._compute_af(self.init_positions if self._p_mode == 2 else mapper.synthesize(np.zeros(mapper.n_vars)),
+                                      ref_amps, ref_phases)
+            ref_abs = np.abs(ref_af)
+            ref_flat = ref_abs.reshape(-1, ref_abs.shape[-1]) if ref_abs.ndim > 1 else ref_abs[None, :]
+            if self._gd_rel is not None:
+                self._ref_main_gain_db = float(20 * np.log10(np.max(ref_flat[0]) + 1e-30))
+            if self._dir_rel is not None:
+                from .analysis import compute_directivity
+                # 参考方向性系数: 用 _compute_af (含单元方向图)
+                ref_af_full = self._compute_af(
+                    self.init_positions if self._p_mode == 2 else mapper.synthesize(np.zeros(mapper.n_vars)),
+                    ref_amps, ref_phases)
+                ref_abs_full = np.abs(ref_af_full)
+                ref_flat_full = ref_abs_full.reshape(-1, ref_abs_full.shape[-1]) if ref_abs_full.ndim > 1 else ref_abs_full[None, :]
+                t_step = float(abs(self.pattern.theta_deg[1] - self.pattern.theta_deg[0]))
+                self._ref_directivity_dbi, _ = compute_directivity(
+                    ref_flat_full[0].transpose(),
+                    [float(self.pattern.theta_deg[0]), float(self.pattern.theta_deg[-1]), t_step],
+                    [0, 0, 1])
 
     def fitness(self, x: np.ndarray) -> float:
         af_db = self._get_af_db(x)
@@ -347,7 +476,42 @@ class SidelobeProblem(BeamformingProblem):
             if hpbw > self.target_hpbw:
                 hpbw_pen = (hpbw - self.target_hpbw) * 100.0
 
-        return float(psll_val) + pointing + hpbw_pen
+        # 主瓣增益下降惩罚
+        gain_drop_pen = 0.0
+        if (self._gd_abs is not None or self._gd_rel is not None) and self._ref_main_gain_db is not None:
+            pos, phases, amps = self._decode(x)
+            af_abs = np.abs(self._compute_af(pos, amps, phases))
+            af_abs_flat = af_abs.reshape(-1, af_abs.shape[-1]) if af_abs.ndim > 1 else af_abs[None, :]
+            cur_main_gain = float(20 * np.log10(np.max(af_abs_flat[0]) + 1e-30))
+            drop = self._ref_main_gain_db - cur_main_gain
+            # 绝对值: drop 不能超过 limit
+            if self._gd_abs is not None and drop > self._gd_abs:
+                gain_drop_pen += (drop - self._gd_abs) * 100.0
+            # 相对: drop 不能超过 ref_gain - limit
+            if self._gd_rel is not None and drop > self._gd_rel:
+                gain_drop_pen += (drop - self._gd_rel) * 100.0
+
+        # 方向性系数约束
+        dir_pen = 0.0
+        if self._dir_abs is not None or self._dir_rel is not None:
+            from .analysis import compute_directivity
+            pos_d, phases_d, amps_d = self._decode(x)
+            af_abs_d = np.abs(self._compute_af(pos_d, amps_d, phases_d))
+            af_abs_d = af_abs_d.reshape(-1, af_abs_d.shape[-1]) if af_abs_d.ndim > 1 else af_abs_d[None, :]
+            t_step = float(abs(self.pattern.theta_deg[1] - self.pattern.theta_deg[0]))
+            d_val, _ = compute_directivity(af_abs_d[0],
+                (float(self.pattern.theta_deg[0]), float(self.pattern.theta_deg[-1]), t_step),
+                [0, 0.5, 1])
+            # 绝对值: D 不能低于 limit
+            if self._dir_abs is not None and d_val < self._dir_abs:
+                dir_pen += (self._dir_abs - d_val) * 100.0
+            # 相对: D 不能低于 ref_D - limit
+            if self._dir_rel is not None and self._ref_directivity_dbi is not None:
+                rel_drop = self._ref_directivity_dbi - d_val
+                if rel_drop > self._dir_rel:
+                    dir_pen += (rel_drop - self._dir_rel) * 100.0
+
+        return float(psll_val) + pointing + hpbw_pen + gain_drop_pen + dir_pen
 
     def _compute_hpbw(self, af_db):
         if self.pattern.is_planar:
@@ -445,6 +609,99 @@ class NullSteeringProblem(BeamformingProblem):
                           + self.w_null * depth_pen
                           + self.w_valley * valley_pen
                           + self.w_sll * psll_pt)
+
+        return float(total_fit)
+
+
+class TripleNullProblem(BeamformingProblem):
+    """三零陷优化问题。
+
+    适应度: pointing + 2·depth_penalty + 2·PSLL_penalty + edge_dip_penalty
+    参考: f5.m (孟师兄三零陷验证)
+    """
+
+    def __init__(
+        self,
+        mapper: LMMapper,
+        pattern: Pattern,
+        *,
+        null_angles_deg: list = None,
+        null_target_db: float = -40.0,
+        sll_target_db: float = -15.0,
+        null_window_half_deg: float = 5.0,
+        null_margin_db: float = 0.0,
+        weights: Optional[dict] = None,
+        **kwargs,
+    ):
+        super().__init__(mapper, pattern, **kwargs)
+
+        self.null_angles_deg = [float(a) for a in (null_angles_deg or [55.0, 70.0, 85.0])]
+        self.null_target_db = float(null_target_db)
+        self.sll_target_db = float(sll_target_db)
+        self.null_window_half_deg = float(null_window_half_deg)
+        self.null_margin_db = float(null_margin_db)
+
+        w = weights or {}
+        self.w_ml = float(w.get("pointing", 0.5))
+        self.w_null = float(w.get("null_depth", 2.0))
+        self.w_sll = float(w.get("sll", 2.0))
+        self.w_edge = float(w.get("edge_dip", 1.0))
+
+        # 预计算每个零陷的窗口索引
+        step = abs(self.pattern.theta_deg[1] - self.pattern.theta_deg[0])
+        hw = int(round(self.null_window_half_deg / step))
+        self._null_infos = []
+        for ang in self.null_angles_deg:
+            idx = int(np.argmin(np.abs(self.pattern.theta_deg - ang)))
+            win = slice(max(0, idx - hw), min(len(self.pattern.theta_deg), idx + hw + 1))
+            self._null_infos.append((idx, win))
+
+    def fitness(self, x: np.ndarray) -> float:
+        af_db = self._get_af_db(x)
+        af_flat = self._flatten_af_db(af_db)
+
+        total_fit = 0.0
+        for sub in range(af_flat.shape[0]):
+            p = af_flat[sub]
+
+            # PSLL (副瓣电平)
+            psll_val, _ = get_psll(p, self.pattern.theta_deg)
+            psll_pt = max(0.0, psll_val - self.null_target_db)
+
+            # 主瓣指向惩罚
+            pointing = 0.0
+            if self.use_pointing_penalty:
+                from .analysis import _find_peaks
+                indices, extrema = _find_peaks(p)
+                main_idx = indices[0]
+                for j in range(1, len(indices)):
+                    if abs(extrema[j]) < 1e-6:
+                        cur = indices[j]
+                        if abs(cur - self._main_idx) < abs(main_idx - self._main_idx):
+                            main_idx = cur
+                    else:
+                        break
+                pointing = abs(main_idx - self._main_idx) * 0.5
+
+            # 三个零陷的深度惩罚 + 边缘下陷惩罚
+            total_depth_pen = 0.0
+            total_edge_pen = 0.0
+            for null_idx, null_win in self._null_infos:
+                # 深度惩罚: 窗口内最大值 - 目标
+                min_null = np.max(p[null_win])
+                depth_pen = max(0.0, min_null - self.null_target_db)
+                total_depth_pen = max(total_depth_pen, depth_pen)
+
+                # 边缘下陷惩罚: 零陷中心是否比窗口边缘低
+                edge_val = min(p[null_win.start] if null_win.start > 0 else p[0],
+                               p[null_win.stop - 1] if null_win.stop < len(p) else p[-1])
+                edge_pen = max(0.0, p[null_idx] - edge_val + self.null_margin_db)
+                total_edge_pen += edge_pen
+
+            total_fit += (self.w_ml * pointing
+                          + self.w_null * total_depth_pen
+                          + self.w_sll * psll_pt
+                          + self.w_edge * total_edge_pen)
 
         return float(total_fit)
 

@@ -6,13 +6,16 @@
 支持：
   - 1D 方向图 (Nθ,)：线阵或平面阵单 φ 切片
   - 2D 方向图 (Nθ, Nφ)：平面阵全 φ 分析
+  - 方向性系数计算
+  - 主瓣增益下降计算
 
 mainlobe_region 约定：
   - 1D 模式: (θ_start, θ_end) — 排除该 θ 区间
   - 2D 模式: ((θ_start, θ_end), (φ_start, φ_end)) — 排除矩形区域
 """
 
-from typing import Optional, Union
+from typing import Optional, Union, Callable
+from scipy.integrate import trapezoid
 import numpy as np
 
 
@@ -313,3 +316,174 @@ def get_overall_psll(pattern: np.ndarray,
         return -np.inf, np.array([np.nan, np.nan])
     worst_idx = int(np.argmax(pslls))
     return float(pslls[worst_idx]), coords[worst_idx].copy()
+
+
+# ============================================================
+#  方向性系数
+# ============================================================
+
+def compute_directivity(pat, theta_params, phi_params,
+                                field_type='field', atol=1e-9):
+    """
+    通用方向性系数计算，支持一维（单 phi 切面）或二维方向图。
+    一维输入要求 theta 范围对称（start ≈ -stop），以便自动扩展 phi 面。
+    """
+    # ------------------ 生成角度向量 ------------------
+    def make_angles(start, stop, step):
+        vec = np.arange(start, stop + step / 2, step)
+        vec = np.round(vec / atol) * atol
+        return vec
+
+    theta = make_angles(*theta_params)
+    phi = make_angles(*phi_params)
+
+    # 将 pat 转为二维，并确保维度匹配
+    pat = np.asarray(pat, dtype=float)
+    if pat.ndim == 1:
+        # 视为 (len(theta), 1)
+        if len(phi) != 1:
+            raise ValueError("一维 pat 要求 phi 参数只生成一个角度（即 phi_params 长度为 1）")
+        if len(theta) != len(pat):
+            raise ValueError(f"一维 pat 长度 {len(pat)} 与 theta 长度 {len(theta)} 不匹配")
+        pat = pat[:, np.newaxis]   # 变为二维列向量
+    elif pat.ndim == 2:
+        pass
+    else:
+        raise ValueError("pat 必须是一维或二维数组")
+
+    # 对齐尺寸（处理浮点造成的多一个点）
+    theta = theta[:pat.shape[0]]
+    phi = phi[:pat.shape[1]]
+
+    if pat.shape != (len(theta), len(phi)):
+        raise ValueError(f"pat 形状 {pat.shape} 与 (theta={len(theta)}, phi={len(phi)}) 不匹配")
+
+    # 范围检查
+    if np.any(theta < -180 - atol) or np.any(theta > 180 + atol):
+        raise ValueError("theta 存在超出 [-180,180] 的值")
+    if np.any(phi < -atol) or np.any(phi > 360 + atol):
+        raise ValueError("phi 存在超出 [0,360] 的值")
+
+    # 360° 转为 0°
+    phi = np.where(np.abs(phi - 360.0) < atol, 0.0, phi)
+
+    # ------------------ 判断是否需要坐标转换 ------------------
+    if np.all(theta >= -atol):
+        # 如果是一维且 theta 全非负，无法计算有意义的方向性
+        if pat.shape[1] == 1:
+            raise ValueError(
+                "一维方向图（单 phi 面）且 theta 无负值，无法计算全空间方向性。"
+                "请提供对称的 theta 范围（如 -90 ~ 90）以自动扩展 phi 面，"
+                "或直接提供完整的二维方向图。"
+            )
+        # 标准球坐标，直接使用
+        theta_std = theta
+        phi_std = phi
+        pat_std = pat
+    else:
+        # 检查对称性（theta 有负值时必须对称）
+        if abs(theta[0] + theta[-1]) > atol:
+            raise ValueError("theta 有负值时，起始和终止必须互为相反数")
+
+        # 标准 theta 网格（绝对值去重排序）
+        theta_std = np.unique(np.round(np.abs(theta) / atol) * atol)
+        theta_std.sort()
+
+        # 标准 phi 网格：原 phi + 每个 phi+180° 产生的值，去重排序
+        all_phi = set(phi)
+        for ph in phi:
+            all_phi.add(np.round((ph + 180.0) % 360.0 / atol) * atol)
+        phi_std = np.sort(list(all_phi))
+
+        # 初始化输出矩阵
+        new_pat = np.full((len(theta_std), len(phi_std)), np.nan)
+
+        # 映射数据
+        for i, th in enumerate(theta):
+            for j, ph in enumerate(phi):
+                val = pat[i, j]
+                if th >= -atol:
+                    t_std = abs(th)
+                    p_std = ph
+                else:
+                    t_std = -th
+                    p_std = np.round((ph + 180.0) % 360.0 / atol) * atol
+
+                idx_t = np.argmin(np.abs(theta_std - t_std))
+                idx_p = np.argmin(np.abs(phi_std - p_std))
+
+                if np.isnan(new_pat[idx_t, idx_p]):
+                    new_pat[idx_t, idx_p] = val
+                else:
+                    if not np.allclose(new_pat[idx_t, idx_p], val, atol=atol):
+                        raise ValueError(
+                            f"方向 (θ={theta_std[idx_t]}°, φ={phi_std[idx_p]}°) "
+                            f"数据冲突: {new_pat[idx_t, idx_p]} vs {val}"
+                        )
+
+        # 天顶方向填充：θ=0 的整行用已有有效值填充
+        zero_idx = np.where(np.abs(theta_std) < atol)[0]
+        if len(zero_idx) > 0:
+            idx0 = zero_idx[0]
+            row = new_pat[idx0, :]
+            valid = row[~np.isnan(row)]
+            if len(valid) > 0:
+                if not np.allclose(valid, valid[0], atol=atol):
+                    raise ValueError("天顶 (θ=0°) 处不同 phi 的数据不一致")
+                new_pat[idx0, :] = valid[0]
+
+        pat_std = new_pat
+
+    # ------------------ 方向性系数积分 ------------------
+    if field_type == 'field':
+        U = pat_std ** 2
+    elif field_type == 'power':
+        U = pat_std.copy()
+    else:
+        raise ValueError("field_type 必须是 'field' 或 'power'")
+
+    U_max = np.max(U)
+    theta_rad = np.deg2rad(theta_std)
+    phi_rad = np.deg2rad(phi_std)
+
+    # 闭合 phi 维度（补 360°=0° 点）
+    if abs(phi_rad[-1] - 2 * np.pi) > atol:
+        phi_rad = np.append(phi_rad, 2 * np.pi)
+        U = np.concatenate([U, U[:, [0]]], axis=1)
+
+    integrand = U * np.sin(theta_rad)[:, np.newaxis]
+    int_theta = np.trapz(integrand, x=theta_rad, axis=0)
+    P_rad = np.trapz(int_theta, x=phi_rad)
+
+    D_linear = 4 * np.pi * U_max / P_rad
+    D_dBi = 10 * np.log10(D_linear)
+
+    return D_dBi, D_linear
+
+def compute_gain_drop(pattern_opt_linear, pattern_ref_linear):
+    """计算主瓣增益下降 (dB)。
+
+    对比两个未归一化线性方向图的峰值增益差。
+
+    Args:
+        pattern_opt_linear: 优化后的未归一化线性方向图
+        pattern_ref_linear: 参考 (均匀激励) 未归一化线性方向图
+
+    Returns:
+        (drop_db, ref_gain_db, opt_gain_db)
+        drop_db: 增益下降值 (dB), 正数表示优化后降低
+        ref_gain_db: 参考峰值增益 (dB, 未归一化)
+        opt_gain_db: 优化后峰值增益 (dB, 未归一化)
+    """
+    pattern_ref_linear = np.asarray(pattern_ref_linear, dtype=float)
+    pattern_opt_linear = np.asarray(pattern_opt_linear, dtype=float)
+
+    def _peak_gain(pattern_linear):
+        p2 = pattern_linear ** 2
+        return float(10 * np.log10(np.max(p2) + 1e-30))
+
+    ref_gain = _peak_gain(pattern_ref_linear)
+    opt_gain = _peak_gain(pattern_opt_linear)
+    drop = ref_gain - opt_gain
+
+    return drop, ref_gain, opt_gain

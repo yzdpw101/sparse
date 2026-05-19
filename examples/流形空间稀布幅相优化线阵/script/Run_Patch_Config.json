@@ -1,0 +1,44 @@
+{
+  "script": {
+
+    "hfss": {
+      "elementConfigFilePath": "",
+      "pattern_export_directory": "",
+      "project_save_path": "",
+      "close_after_simulation": false,
+      "run_simulation": true,
+
+      "Results_Category可选的有：rETotal、RealizedGainTotal、GainTotal、dB(GainTotal)": null,
+      "Results_Category": "GainTotal",
+      "Results_Function": "",
+      "Results_Sections_deg": [],
+
+      "frequency_GHz": 2.45,
+      "epsilon_r": 4.4,
+      "patchLength_mm": 27.9,
+      "patchHeight_mm": 0.035,
+      "arrayWidth_wavelength": 0.0,
+      "arrayLength_wavelength": 0.0,
+      "substrateHeight_mm": 1.6,
+      "arrayMargin_wavelength": 0.5,
+      "airboxMargin_wavelength": 0.25,
+      "GNDHeight_mm": 0.03,
+      "portRadius_mm": 1.5,
+      "feedRadius_mm": 0.6,
+      "L1_mm": 7.7,
+
+      "InsertSetup_MaxDeltaS": 0.02,
+      "InsertSetup_MaximumPasses": 50,
+      "InsertSetup_SaveRadFieldsOnly": true,
+
+      "ThetaStart_deg": -180,
+      "ThetaStop_deg": 180,
+      "ThetaStep_deg": 0.01,
+      "PhiStart_deg": 0,
+      "PhiStop_deg": 0,
+      "PhiStep_deg": 1,
+
+      "Assign_Excitation_Type": "LumpedPort"
+    }
+  }
+}
